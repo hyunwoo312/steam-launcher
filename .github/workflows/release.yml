@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Read version from plugin.json
+        id: version
+        shell: pwsh
+        run: |
+          $version = (Get-Content src/Flow.Launcher.Plugin.SteamLauncher/plugin.json | ConvertFrom-Json).Version
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Verify tag matches plugin.json version
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $expected = "v${{ steps.version.outputs.version }}"
+          if ($tag -ne $expected) {
+            Write-Error "Tag '$tag' does not match plugin.json version '$expected'. Bump plugin.json before tagging."
+            exit 1
+          }
+
+      - name: Test
+        run: dotnet test src/Flow.Launcher.Plugin.SteamLauncher.Tests/Flow.Launcher.Plugin.SteamLauncher.Tests.csproj -c Release
+
+      - name: Publish (Release)
+        run: dotnet publish src/Flow.Launcher.Plugin.SteamLauncher/Flow.Launcher.Plugin.SteamLauncher.csproj -c Release -o publish
+
+      - name: Package
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "publish/*" -DestinationPath "Flow.Launcher.Plugin.SteamLauncher.zip" -Force
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Flow.Launcher.Plugin.SteamLauncher.zip
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

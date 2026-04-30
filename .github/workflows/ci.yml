@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/**'
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+
+      - name: Restore
+        run: dotnet restore src/Flow.Launcher.Plugin.SteamLauncher.Tests/Flow.Launcher.Plugin.SteamLauncher.Tests.csproj
+
+      - name: Build (Release)
+        run: dotnet build src/Flow.Launcher.Plugin.SteamLauncher/Flow.Launcher.Plugin.SteamLauncher.csproj -c Release --no-restore
+
+      - name: Test
+        run: dotnet test src/Flow.Launcher.Plugin.SteamLauncher.Tests/Flow.Launcher.Plugin.SteamLauncher.Tests.csproj -c Release --no-restore --verbosity normal

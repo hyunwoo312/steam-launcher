@@ -1,0 +1,31 @@
+"AppState"
+{
+	"appid"		"730"
+	"Universe"		"1"
+	"name"		"Counter-Strike 2"
+	"StateFlags"		"4"
+	"installdir"		"Counter-Strike Global Offensive"
+	"LastUpdated"		"1714234567"
+	"SizeOnDisk"		"35433512345"
+	"buildid"		"15834290"
+	"LastPlayed"		"1714312345"
+	"BytesToDownload"		"0"
+	"BytesDownloaded"		"0"
+	"BytesToStage"		"0"
+	"BytesStaged"		"0"
+	"AutoUpdateBehavior"		"0"
+	"AllowOtherDownloadsWhileRunning"		"0"
+	"ScheduledAutoUpdate"		"0"
+	"InstalledDepots"
+	{
+		"731"
+		{
+			"manifest"		"1234567890123456789"
+			"size"		"123456789"
+		}
+	}
+	"UserConfig"
+	{
+		"language"		"english"
+	}
+}

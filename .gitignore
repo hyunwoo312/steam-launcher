@@ -1,0 +1,25 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Build output
+out/
+publish/
+*.zip
+
+# Plugin local state (would otherwise pollute repo)
+cache_*.json
+*.bin
+plugin_steamflow.log
+plugin_*.log
+
+# IDE
+.vscode/settings.json
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
