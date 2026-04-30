@@ -127,24 +127,31 @@ public sealed class SteamPathResolverTests
     [Fact]
     public void GetLibraryPaths_ParsesLibraryFoldersVdf_ReturnsAllPaths()
     {
-        var registry = Substitute.For<IRegistryReader>();
-        registry.ReadCurrentUserString(@"Software\Valve\Steam", "SteamPath")
-            .Returns(@"C:/Program Files (x86)/Steam");
-
-        var fixturePath = Path.Combine(AppContext.BaseDirectory, "Fixtures", "libraryfolders.vdf");
-        var realParser = new VdfParser();
-        var parsed = realParser.ParseFile(fixturePath);
-        var parser = Substitute.For<IVdfParser>();
-        parser.ParseFile(Arg.Any<string>()).Returns(parsed);
-
-        var resolver = new SteamPathResolver(registry, parser);
-
-        var paths = resolver.GetLibraryPaths();
-
-        paths.Should().BeEquivalentTo(new[]
+        // Resolver short-circuits to [steamRoot] if libraryfolders.vdf doesn't exist
+        // on disk, so we lay out a real temp Steam tree instead of substituting the parser.
+        var tempDir = Path.Combine(Path.GetTempPath(), "flow-steam-libraryfolders-" + Guid.NewGuid());
+        var steamappsDir = Path.Combine(tempDir, "steamapps");
+        Directory.CreateDirectory(steamappsDir);
+        try
         {
-            @"C:\Program Files (x86)\Steam",
-            @"D:\SteamLibrary"
-        });
+            var fixtureSrc = Path.Combine(AppContext.BaseDirectory, "Fixtures", "libraryfolders.vdf");
+            File.Copy(fixtureSrc, Path.Combine(steamappsDir, "libraryfolders.vdf"));
+
+            var registry = Substitute.For<IRegistryReader>();
+            registry.ReadCurrentUserString(@"Software\Valve\Steam", "SteamPath").Returns(tempDir.Replace('\\', '/'));
+            var resolver = new SteamPathResolver(registry, new VdfParser());
+
+            var paths = resolver.GetLibraryPaths();
+
+            paths.Should().BeEquivalentTo(new[]
+            {
+                @"C:\Program Files (x86)\Steam",
+                @"D:\SteamLibrary"
+            });
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir)) Directory.Delete(tempDir, recursive: true);
+        }
     }
 }

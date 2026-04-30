@@ -39,26 +39,29 @@ st downloads             Open the Steam download manager
 
 ### Local library
 
+- `st` lists installed Steam games sorted by most recently played
+- `st <name>` fuzzy-filters the library by title
 - Launches installed games directly via Steam (handles update-then-launch automatically)
-- Shows playtime · last 2 weeks playtime · last-played · review summary · install size · update-status badge
+- Each row shows: playtime · last 2 weeks playtime · last-played · review summary · install size · update-status badge
 - Surfaces "(N friends playing)" when any of your friends are currently in that game
-- Sorted by most recently played
 
 ### Steam Store search
 
-- Falls in seamlessly when you type a game name that isn't installed (up to 10 combined results)
+- `st <name>` falls through to the Steam Store when the term doesn't match an installed game (up to 10 combined results)
 - Shows review summary · price · discount · release date · developer
 - Owned-but-not-installed rows route directly to your library page
 
 ### Friends
 
-- Online friends sorted in-game / online / offline, with status emoji + current game
-- Favorites are pinned to the top with a ⭐ marker
+- `st friends` lists online friends sorted in-game / online / offline, with status emoji + current game
 - `st friends <name>` fuzzy-filters by persona name
+- Favorites are pinned to the top with a ⭐ marker
 - Enter on a friend opens DM (Steam comes to the foreground via the AttachThreadInput trick)
 - Right-click for the full context menu
 
 ### Adaptive context menu
+
+Right-click any row to open the context menu. Items adapt to what the row represents:
 
 - **On a game:** Launch · Open store · Community guides · Community discussions · Game properties · Open game folder
 - **On a friend:** DM · Invite to game · Join game · Open profile · Favorite/Unfavorite (refreshes the list in place)
@@ -72,11 +75,12 @@ st downloads             Open the Steam download manager
 
 ### Steam status
 
-- Switch to Online, Invisible, or Offline with one click via Steam's URL scheme — instant, no Steam restart
+- `st status` shows three rows: Online / Invisible / Offline
+- One click switches your status via Steam's URL scheme — instant, no Steam restart
 
 ### Account switcher
 
-- Lists every Steam account saved on this PC (current account hidden)
+- `st switch` lists every Steam account saved on this PC (current account hidden)
 - Per-account avatars from Steam's local cache
 - Selecting an account → confirmation row → switch (kills Steam, rewrites `loginusers.vdf`, sets `AutoLoginUser` registry, relaunches Steam)
 - Refuses to switch if a game is currently running
@@ -84,14 +88,22 @@ st downloads             Open the Steam download manager
 ### Personal stats
 
 - `st me` shows Steam level, owned-game count, total playtime, and recent activity
+- `st new` lists owned games you've never played
 - Enter on the profile row opens your Steam profile; Enter on the recent row opens the library
 
-### Steam Web API
+### Quick utilities
+
+- `st verify [name]` runs a Steam integrity verification on a game (`steam://validate/<appid>`)
+- `st settings` opens the Steam settings window directly
+- `st downloads` opens the Steam download manager
+
+### Steam Web API setup
 
 > API key encrypted with Windows DPAPI, bound to the current user.
 
-- Drives `st me`, `st new`, `st friends`, `st multi`, friends-playing detection, and the store's owned-detection cross-reference
-- `st api` walks you through getting a key and (auto-)setting your Steam ID
+- `st api` is a guided wizard: get a key, paste it, set Steam ID (auto-detected from `loginusers.vdf` when possible)
+- `st api <key>` saves the key; `st api id <steamid64>` saves the Steam ID
+- Drives `st me`, `st new`, `st friends`, `st multi`, the friends-playing suffix on game rows, and the store's owned-detection cross-reference
 
 ## Installation
 
