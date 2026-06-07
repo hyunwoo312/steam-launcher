@@ -231,6 +231,24 @@ public sealed class QueryParserTests
     }
 
     [Fact]
+    public void Parse_uninstall_NoArg_ReturnsUninstallGameWithNullFilter()
+    {
+        var result = QueryParser.Parse("uninstall");
+
+        var u = result.Should().BeOfType<ParsedQuery.UninstallGame>().Which;
+        u.Filter.Should().BeNull();
+    }
+
+    [Fact]
+    public void Parse_uninstall_WithTerm_ReturnsUninstallGameWithTerm()
+    {
+        var result = QueryParser.Parse("uninstall half-life");
+
+        var u = result.Should().BeOfType<ParsedQuery.UninstallGame>().Which;
+        u.Filter.Should().Be("half-life");
+    }
+
+    [Fact]
     public void Parse_settings_ReturnsOpenSteamSettings()
     {
         var result = QueryParser.Parse("settings");

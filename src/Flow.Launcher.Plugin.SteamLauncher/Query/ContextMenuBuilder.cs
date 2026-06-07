@@ -18,6 +18,7 @@ internal sealed class ContextMenuBuilder
     private const string IconContact          = ""; // Contact
     private const string IconFavoriteStar     = ""; // FavoriteStar
     private const string IconFavoriteStarFill = ""; // FavoriteStarFill
+    private const string IconDelete           = ""; // Delete
 
     private readonly IPublicAPI _api;
     private readonly PluginSettings _settings;
@@ -60,6 +61,7 @@ internal sealed class ContextMenuBuilder
         if (!string.IsNullOrEmpty(g.InstallPath))
         {
             var installPath = g.InstallPath;
+            results.Add(SteamUriRow("Uninstall", IconDelete, SteamUriBuilder.Uninstall(g.AppId), "Open Steam's uninstall confirmation"));
             results.Add(new Result
             {
                 Title = "Open game folder",

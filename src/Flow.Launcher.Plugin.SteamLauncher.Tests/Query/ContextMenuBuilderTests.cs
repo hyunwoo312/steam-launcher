@@ -34,6 +34,7 @@ public sealed class ContextMenuBuilderTests
         var rows = builder.Build(new ContextData.Game(730, "CS2", InstallPath: null));
 
         rows.Should().NotContain(r => r.Title == "Open game folder");
+        rows.Should().NotContain(r => r.Title == "Uninstall");
     }
 
     [Fact]
@@ -70,7 +71,19 @@ public sealed class ContextMenuBuilderTests
             "Open community guides",
             "Open community discussions",
             "Open game properties",
+            "Uninstall",
             "Open game folder");
+    }
+
+    [Fact]
+    public void Build_InstalledGame_IncludesUninstallRow()
+    {
+        var builder = Build();
+
+        var rows = builder.Build(new ContextData.Game(730, "CS2", @"C:\foo"));
+
+        rows.Should().Contain(r => r.Title == "Uninstall"
+            && r.SubTitle == "Open Steam's uninstall confirmation");
     }
 
     [Fact]
