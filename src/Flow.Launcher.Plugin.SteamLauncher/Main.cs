@@ -1,5 +1,6 @@
 using System.IO;
 using System.Net.Http;
+using Flow.Launcher.Plugin;
 using Flow.Launcher.Plugin.SteamLauncher.Cache;
 using Flow.Launcher.Plugin.SteamLauncher.Query;
 using Flow.Launcher.Plugin.SteamLauncher.Security;
@@ -10,7 +11,7 @@ using Flow.Launcher.Plugin.SteamLauncher.Vdf;
 
 namespace Flow.Launcher.Plugin.SteamLauncher;
 
-public sealed class Main : IAsyncPlugin, IContextMenu, IDisposable
+public sealed class Main : IAsyncPlugin, IContextMenu, IResultUpdated, IDisposable
 {
     private QueryDispatcher? _dispatcher;
     private ContextMenuBuilder? _contextMenuBuilder;
@@ -19,6 +20,10 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IDisposable
     private HttpClient? _httpClient;
     private string _defaultIconPath = string.Empty;
     private Action<string, string, Exception> _logException = (_, _, _) => { };
+    private int _progressiveLoadingGeneration;
+    private int _activeProgressiveLoadingGeneration;
+
+    public event ResultUpdatedEventHandler? ResultsUpdated;
 
     public Task InitAsync(PluginInitContext context)
     {
@@ -132,6 +137,33 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IDisposable
         try
         {
             var parsed = QueryParser.Parse(query.Search);
+            if (parsed is ParsedQuery.Empty)
+            {
+                var loadingGeneration = BeginProgressiveLoading();
+                var initialResults = await _dispatcher.BuildFastEmptyResultsAsync(token).ConfigureAwait(false);
+                PublishEnrichedResults(query, parsed, loadingGeneration, token);
+                return initialResults;
+            }
+
+            if (parsed is ParsedQuery.LibraryFilter filter)
+            {
+                var loadingGeneration = BeginProgressiveLoading();
+                var initialResults = await _dispatcher.BuildFastFilteredResultsAsync(filter.Term, token).ConfigureAwait(false);
+                PublishEnrichedResults(query, filter, loadingGeneration, token);
+                return initialResults;
+            }
+
+            if (parsed is ParsedQuery.VerifyGame verify)
+            {
+                var loadingGeneration = BeginProgressiveLoading();
+                var initialResults = await _dispatcher.BuildFastVerifyResultsAsync(verify.Filter, token).ConfigureAwait(false);
+                PublishEnrichedResults(query, verify, loadingGeneration, token);
+                return initialResults;
+            }
+
+            if (parsed is ParsedQuery.UninstallGame uninstall)
+                return await _dispatcher.DispatchAsync(uninstall, token).ConfigureAwait(false);
+
             return await _dispatcher.DispatchAsync(parsed, token).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { throw; }
@@ -148,6 +180,80 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IDisposable
         if (_contextMenuBuilder is not null && selectedResult.ContextData is ContextData data)
             return _contextMenuBuilder.Build(data);
         return [];
+    }
+
+    private void PublishEnrichedResults(
+        global::Flow.Launcher.Plugin.Query query,
+        ParsedQuery parsed,
+        int loadingGeneration,
+        CancellationToken token)
+    {
+        var dispatcher = _dispatcher;
+        if (dispatcher is null)
+        {
+            EndProgressiveLoading(loadingGeneration);
+            return;
+        }
+
+        ShowProgressiveLoadingAfterQueryReturns(loadingGeneration, token);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var results = await dispatcher.DispatchAsync(parsed, token).ConfigureAwait(false);
+                if (token.IsCancellationRequested) return;
+
+                ResultsUpdated?.Invoke(this, new ResultUpdatedEventArgs
+                {
+                    Query = query,
+                    Results = results,
+                    Token = token
+                });
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logException(nameof(Main), $"Progressive update for '{query.Search}' failed", ex);
+            }
+            finally
+            {
+                EndProgressiveLoading(loadingGeneration);
+            }
+        }, CancellationToken.None);
+    }
+
+    private int BeginProgressiveLoading()
+    {
+        var generation = Interlocked.Increment(ref _progressiveLoadingGeneration);
+        Volatile.Write(ref _activeProgressiveLoadingGeneration, generation);
+        return generation;
+    }
+
+    private void ShowProgressiveLoadingAfterQueryReturns(int generation, CancellationToken token)
+    {
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                await Task.Delay(50, token).ConfigureAwait(false);
+                if (token.IsCancellationRequested) return;
+                if (Volatile.Read(ref _activeProgressiveLoadingGeneration) != generation) return;
+                _context?.API.StartLoadingBar();
+            }
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
+            {
+                _logException(nameof(Main), "Start progressive loading bar failed", ex);
+            }
+        }, CancellationToken.None);
+    }
+
+    private void EndProgressiveLoading(int generation)
+    {
+        if (Interlocked.CompareExchange(ref _activeProgressiveLoadingGeneration, 0, generation) != generation) return;
+        try { _context?.API.StopLoadingBar(); }
+        catch (Exception ex) { _logException(nameof(Main), "Stop progressive loading bar failed", ex); }
     }
 
     public void Dispose()

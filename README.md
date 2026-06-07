@@ -31,6 +31,7 @@ st status                Set status: Online / Invisible / Offline
 st switch                Switch the active Steam account
 st multi <friend>        Shared multiplayer games with a friend
 st verify [name]         Verify integrity of a game's files
+st uninstall [name]      Uninstall an installed game
 st settings              Open the Steam settings window
 st downloads             Open the Steam download manager
 ```
@@ -41,9 +42,11 @@ st downloads             Open the Steam download manager
 
 - `st` lists installed Steam games sorted by most recently played
 - `st <name>` fuzzy-filters the library by title
+- Installed games render first while Steam metadata, friends-playing info, and store results load in the background
 - Launches installed games directly via Steam (handles update-then-launch automatically)
 - Each row shows: playtime · last 2 weeks playtime · last-played · review summary · install size · update-status badge
 - Surfaces "(N friends playing)" when any of your friends are currently in that game
+- Game, friend, profile, multiplayer, and account rows include concise preview-panel details
 
 ### Steam Store search
 
@@ -63,7 +66,8 @@ st downloads             Open the Steam download manager
 
 Right-click any row to open the context menu. Items adapt to what the row represents:
 
-- **On a game:** Launch · Open store · Community guides · Community discussions · Game properties · Open game folder
+- **On an installed game:** Launch · Open store · Community guides · Community discussions · Game properties · Uninstall · Open game folder
+- **On a store game:** Open store · Community guides · Community discussions
 - **On a friend:** DM · Invite to game · Join game · Open profile · Favorite/Unfavorite (refreshes the list in place)
 
 ### Multiplayer planning
@@ -80,9 +84,9 @@ Right-click any row to open the context menu. Items adapt to what the row repres
 
 ### Account switcher
 
-- `st switch` lists every Steam account saved on this PC (current account hidden)
+- `st switch` lists every Steam account saved on this PC, with the current account called out first
 - Per-account avatars from Steam's local cache
-- Selecting an account → confirmation row → switch (kills Steam, rewrites `loginusers.vdf`, sets `AutoLoginUser` registry, relaunches Steam)
+- Selecting a different account → confirmation row → switch (kills Steam, rewrites `loginusers.vdf`, sets `AutoLoginUser` registry, relaunches Steam)
 - Refuses to switch if a game is currently running
 
 ### Personal stats
@@ -94,6 +98,7 @@ Right-click any row to open the context menu. Items adapt to what the row repres
 ### Quick utilities
 
 - `st verify [name]` runs a Steam integrity verification on a game (`steam://validate/<appid>`)
+- `st uninstall [name]` opens Steam's uninstall prompt for an installed game (`steam://uninstall/<appid>`)
 - `st settings` opens the Steam settings window directly
 - `st downloads` opens the Steam download manager
 

@@ -17,6 +17,7 @@ public abstract record ParsedQuery
     public sealed record MultiplayerWith(string FriendName) : ParsedQuery;
 
     public sealed record VerifyGame(string? Filter) : ParsedQuery;
+    public sealed record UninstallGame(string? Filter) : ParsedQuery;
     public sealed record OpenSteamSettings : ParsedQuery;
     public sealed record OpenSteamDownloads : ParsedQuery;
 }

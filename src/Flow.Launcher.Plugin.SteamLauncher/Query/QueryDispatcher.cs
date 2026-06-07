@@ -97,6 +97,7 @@ public sealed class QueryDispatcher
         ParsedQuery.AccountSwitcher acs      => BuildAccountSwitcherResults(acs.ConfirmAccountName),
         ParsedQuery.MultiplayerWith mw       => await BuildMultiplayerResultsAsync(mw.FriendName, ct).ConfigureAwait(false),
         ParsedQuery.VerifyGame v             => await BuildVerifyResultsAsync(v.Filter, ct).ConfigureAwait(false),
+        ParsedQuery.UninstallGame u          => await BuildUninstallResultsAsync(u.Filter, ct).ConfigureAwait(false),
         ParsedQuery.OpenSteamSettings        => BuildOpenSettingsResults(),
         ParsedQuery.OpenSteamDownloads       => BuildOpenDownloadsResults(),
         _ => []
@@ -109,6 +110,21 @@ public sealed class QueryDispatcher
         var libraryRows = await BuildLibraryRowsAsync(
             games.Select(g => (g, (MatchResult?)null)).ToList(), friendsPlaying, ct).ConfigureAwait(false);
 
+        return BuildEmptyResults(libraryRows);
+    }
+
+    public async Task<List<Result>> BuildFastEmptyResultsAsync(CancellationToken ct)
+    {
+        var games = await _localLibrary.GetInstalledGamesAsync(ct).ConfigureAwait(false);
+        var libraryRows = games
+            .Select(g => BuildLibraryResult(g, match: null, GameMetadata.Empty, friendsPlaying: 0))
+            .ToList();
+
+        return BuildEmptyResults(libraryRows);
+    }
+
+    private List<Result> BuildEmptyResults(List<Result> libraryRows)
+    {
         var subtitle = string.IsNullOrEmpty(_localPersonaName)
             ? "Open the Steam client window"
             : $"Open the Steam client window · Signed in as {_localPersonaName}";
@@ -147,6 +163,15 @@ public sealed class QueryDispatcher
         return rows;
     }
 
+    public async Task<List<Result>> BuildFastFilteredResultsAsync(string filter, CancellationToken ct)
+    {
+        var libraryGames = await ResolveLibraryGamesAsync(filter, ct).ConfigureAwait(false);
+        return libraryGames
+            .Take(CombinedResultCap)
+            .Select(g => BuildLibraryResult(g.Game, g.Match, GameMetadata.Empty, friendsPlaying: 0))
+            .ToList();
+    }
+
     private async Task<List<Result>> BuildStoreSearchResultsAsync(string query, CancellationToken ct)
     {
         var results = await _storeSearch.SearchAsync(query, ct).ConfigureAwait(false);
@@ -164,6 +189,7 @@ public sealed class QueryDispatcher
                 .GroupBy(f => f.CurrentGameAppId!.Value)
                 .ToDictionary(g => g.Key, g => g.Count());
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logException(nameof(QueryDispatcher), "Failed to fetch friends-playing map; rendering games without friends-playing suffix", ex);
@@ -209,6 +235,36 @@ public sealed class QueryDispatcher
             subtitlePrefix: "Verify integrity · ",
             actionOverride: () => LaunchInBackground(SteamUriBuilder.Validate(g.Game.AppId), $"Verify failed: {g.Game.Name}"))).ToList();
     }
+
+    public async Task<List<Result>> BuildFastVerifyResultsAsync(string? filter, CancellationToken ct)
+    {
+        var libraryGames = await ResolveLibraryGamesAsync(filter, ct).ConfigureAwait(false);
+        return libraryGames.Select(g => BuildLibraryResult(
+            g.Game, g.Match, GameMetadata.Empty, friendsPlaying: 0,
+            subtitlePrefix: "Verify integrity · ",
+            actionOverride: () => LaunchInBackground(SteamUriBuilder.Validate(g.Game.AppId), $"Verify failed: {g.Game.Name}"))).ToList();
+    }
+
+    private async Task<List<Result>> BuildUninstallResultsAsync(string? filter, CancellationToken ct)
+    {
+        var libraryGames = await ResolveLibraryGamesAsync(filter, ct).ConfigureAwait(false);
+        if (libraryGames.Count == 0)
+            return [SingleRow("No installed game matches", "Try a shorter title, or use `st` to browse installed games")];
+
+        return libraryGames.Select(g => BuildUninstallCandidateRow(g.Game, g.Match)).ToList();
+    }
+
+    private Result BuildUninstallCandidateRow(InstalledGame game, MatchResult? match) => new()
+    {
+        Title = game.Name,
+        SubTitle = $"Uninstall · {SubtitleFormatters.Bytes(game.SizeOnDiskBytes)} · Steam will ask for confirmation",
+        IcoPath = game.IconPath ?? _defaultIconPath,
+        TitleHighlightData = match?.MatchData,
+        Score = match?.Score ?? 0,
+        ContextData = new ContextData.Game(game.AppId, game.Name, game.FullInstallPath),
+        Preview = PreviewBuilders.Game(game, GameMetadata.Empty, friendsPlaying: 0, game.IconPath ?? _defaultIconPath),
+        Action = _ => LaunchInBackground(SteamUriBuilder.Uninstall(game.AppId), $"Uninstall failed: {game.Name}")
+    };
 
     private List<Result> BuildOpenSettingsResults() =>
     [
@@ -261,7 +317,7 @@ public sealed class QueryDispatcher
 
         var profile = await _userProfile.GetMyProfileAsync(ct).ConfigureAwait(false);
         if (profile is null)
-            return [SingleRow("Could not load profile", "Check Flow's log for details")];
+            return [SingleRow("Could not load Steam profile", "Check your API key/Steam ID with `st api`, or try again later")];
 
         ulong.TryParse(_settings.SteamId64, out var steamId);
         var profileUri = SteamUriBuilder.Profile(steamId);
@@ -274,6 +330,7 @@ public sealed class QueryDispatcher
                 Title = profile.PersonaName,
                 SubTitle = $"Steam Level {profile.SteamLevel?.ToString() ?? "?"} · {profile.OwnedGameCount} games · {profile.TotalPlaytimeMinutes / 60} hrs total",
                 IcoPath = profile.AvatarUrl ?? _defaultIconPath,
+                Preview = PreviewBuilders.UserProfile(profile, profile.AvatarUrl),
                 Action = _ => LaunchInBackground(profileUri, "Open profile failed")
             },
             new()
@@ -281,6 +338,10 @@ public sealed class QueryDispatcher
                 Title = "Recent activity",
                 SubTitle = $"{profile.RecentlyPlayedCount} games last 2 weeks · {profile.RecentPlaytimeMinutes / 60} hrs",
                 IcoPath = _defaultIconPath,
+                Preview = new Result.PreviewInfo
+                {
+                    Description = $"{profile.RecentlyPlayedCount} games played in the last 2 weeks{Environment.NewLine}{profile.RecentPlaytimeMinutes / 60} hrs recent playtime"
+                },
                 Action = _ => LaunchInBackground(libraryUri, "Open library failed")
             }
         ];
@@ -294,7 +355,7 @@ public sealed class QueryDispatcher
         var games = await _ownedGames.GetOwnedGamesAsync(ct).ConfigureAwait(false);
         var unplayed = games.Where(g => g.PlaytimeMinutes == 0).ToList();
         if (unplayed.Count == 0)
-            return [SingleRow("No untouched games", "You've started every game you own — go you")];
+            return [SingleRow("No never-played games found", "Steam reports playtime for every owned game returned by the API")];
 
         return unplayed
             .OrderBy(g => g.Name, StringComparer.OrdinalIgnoreCase)
@@ -305,6 +366,11 @@ public sealed class QueryDispatcher
                 SubTitle = "Never played",
                 IcoPath = _iconResolver.Resolve(g.AppId),
                 ContextData = new ContextData.Game(g.AppId, g.Name, InstallPath: null),
+                Preview = new Result.PreviewInfo
+                {
+                    PreviewImagePath = _iconResolver.Resolve(g.AppId),
+                    Description = $"{g.Name} ({g.AppId}){Environment.NewLine}Never played{Environment.NewLine}Owned game"
+                },
                 Action = _ => LaunchInBackground(SteamUriBuilder.RunGame(g.AppId), $"Launch failed: {g.Name}")
             })
             .ToList();
@@ -317,7 +383,7 @@ public sealed class QueryDispatcher
 
         var friends = await _friends.GetFriendsAsync(ct).ConfigureAwait(false);
         if (friends.Count == 0)
-            return [SingleRow("No friends loaded", "Steam returned an empty list, or the call failed — check Flow's log")];
+            return [SingleRow("No Steam friends loaded", "Steam returned no friends, your profile may be private, or the API call failed")];
 
         var favorites = _settings.FavoriteFriendIds.ToHashSet();
 
@@ -342,7 +408,7 @@ public sealed class QueryDispatcher
         }
 
         if (matched.Count == 0)
-            return [SingleRow($"No friend matches \"{filter}\"", "Try `st friends` to see all friends")];
+            return [SingleRow($"No friend matches \"{filter}\"", "Try a shorter name, or run `st friends` to browse the loaded list")];
 
         var top = matched
             .OrderByDescending(m => favorites.Contains(m.Friend.SteamId64))
@@ -373,6 +439,7 @@ public sealed class QueryDispatcher
             TitleHighlightData = match?.MatchData,
             Score = match?.Score ?? 0,
             ContextData = new ContextData.Friend(friend.SteamId64, friend.PersonaName, isFavorite, friend.IsInGame, friend.CurrentGameAppId),
+            Preview = PreviewBuilders.Friend(friend, isFavorite, iconPath),
             Action = _ => LaunchInBackground(dmUri, $"Open chat failed: {friend.PersonaName}")
         };
     }
@@ -412,17 +479,13 @@ public sealed class QueryDispatcher
     {
         var accounts = _accountSwitcherService.GetKnownAccounts();
         if (accounts.Count == 0)
-            return [SingleRow("No Steam accounts found", "Steam isn't installed, or you've never logged in")];
+            return [SingleRow("No saved Steam accounts found", "Steam is not installed, or this PC has no remembered Steam logins")];
 
+        var current = accounts.FirstOrDefault(a => a.IsCurrent);
         var switchable = accounts
             .Where(a => !a.IsCurrent)
             .OrderByDescending(a => a.LastLoginUnix ?? 0L)
             .ToList();
-
-        if (switchable.Count == 0)
-            return [SingleRow(
-                "No other accounts saved on this machine",
-                "Add an account by signing in to Steam with 'Remember me' checked")];
 
         if (confirmAccountName is not null)
         {
@@ -433,14 +496,42 @@ public sealed class QueryDispatcher
             return [BuildAccountConfirmRow(target)];
         }
 
-        return switchable.Select(BuildAccountRow).ToList();
+        var rows = new List<Result>(switchable.Count + 2);
+        if (current is not null)
+            rows.Add(BuildCurrentAccountRow(current));
+
+        if (switchable.Count == 0)
+        {
+            rows.Add(SingleRow(
+                "No other accounts saved on this machine",
+                "Sign into another Steam account with Remember me enabled, then try again"));
+            return rows;
+        }
+
+        rows.AddRange(switchable.Select(BuildAccountRow));
+        return rows;
     }
+
+    private Result BuildCurrentAccountRow(KnownAccount account) => new()
+    {
+        Title = $"Current: {account.PersonaName}",
+        SubTitle = BuildAccountSubtitle(account, "Already active"),
+        IcoPath = account.AvatarPath ?? _defaultIconPath,
+        Score = int.MaxValue,
+        Preview = PreviewBuilders.Account(account, "Already active", account.AvatarPath),
+        Action = _ =>
+        {
+            _showToast?.Invoke("Already using this account", account.AccountName);
+            return false;
+        }
+    };
 
     private Result BuildAccountRow(KnownAccount account) => new()
     {
         Title = account.PersonaName,
-        SubTitle = BuildAccountSubtitle(account),
+        SubTitle = BuildAccountSubtitle(account, "Press Enter to confirm switch"),
         IcoPath = account.AvatarPath ?? _defaultIconPath,
+        Preview = PreviewBuilders.Account(account, "Available to switch", account.AvatarPath),
         Action = ctx =>
         {
             _changeQuery?.Invoke($"{_actionKeyword} switch confirm {account.AccountName}", true);
@@ -451,8 +542,9 @@ public sealed class QueryDispatcher
     private Result BuildAccountConfirmRow(KnownAccount account) => new()
     {
         Title = $"Confirm: switch to {account.PersonaName}",
-        SubTitle = "⚠ Steam will be terminated and reopened — quit any running game first",
+        SubTitle = BuildConfirmAccountSubtitle(account),
         IcoPath = account.AvatarPath ?? _defaultIconPath,
+        Preview = PreviewBuilders.Account(account, "Confirm switch target", account.AvatarPath),
         Action = ctx =>
         {
             _ = Task.Run(async () =>
@@ -483,33 +575,44 @@ public sealed class QueryDispatcher
         }
     };
 
-    private static string BuildAccountSubtitle(KnownAccount account)
+    private static string BuildAccountSubtitle(KnownAccount account, string status)
     {
-        var parts = new List<string> { account.AccountName };
+        var parts = new List<string> { status, account.AccountName };
+        if (!account.RememberPassword)
+            parts.Add("password not remembered");
         if (account.LastLoginUnix is { } unix && unix > 0)
             parts.Add($"last login {SubtitleFormatters.LastPlayedRelative(DateTimeOffset.FromUnixTimeSeconds(unix))}");
+        return string.Join(" · ", parts);
+    }
+
+    private static string BuildConfirmAccountSubtitle(KnownAccount account)
+    {
+        var parts = new List<string>();
         if (!account.RememberPassword)
-            parts.Add("⚠ Password not remembered — Steam will prompt");
+            parts.Add("Steam may ask for this account's password");
+        parts.Add($"Target account: {account.AccountName}");
+        parts.Add("Steam will close and reopen");
+        parts.Add("quit running games first");
         return string.Join(" · ", parts);
     }
 
     private async Task<List<Result>> BuildMultiplayerResultsAsync(string friendName, CancellationToken ct)
     {
         if (string.IsNullOrWhiteSpace(friendName))
-            return [SingleRow("Usage: st multi <friend>", "Type a friend's persona name to see shared multiplayer games")];
+            return [SingleRow("Usage: st multi <friend>", "Type part of a friend's Steam persona name")];
 
         var result = await _multiplayerService.FindSharedAsync(friendName, ct).ConfigureAwait(false);
 
         switch (result.Outcome)
         {
             case MultiplayerOutcome.NoFriendMatch:
-                return [SingleRow($"No matching friend for \"{friendName}\"", "Try `st friends` to see all friends")];
+                return [SingleRow($"No matching friend for \"{friendName}\"", "Try a shorter name, or run `st friends` to browse the loaded list")];
             case MultiplayerOutcome.PrivateOrEmpty:
                 return [SingleRow($"{result.PersonaName} — game list private or empty",
-                    "Their profile/game-list is set to private, or they own no games")];
+                    "Steam did not return their owned games; their profile or game details may be private")];
             case MultiplayerOutcome.Match when result.SharedGames.Count == 0:
                 return [SingleRow($"No multiplayer games in common with {result.PersonaName}",
-                    "You both own games but none have multiplayer/co-op categories")];
+                    "Shared games were found, but none had Steam multiplayer/co-op category tags")];
             case MultiplayerOutcome.Match:
             {
                 var rows = new List<Result>(result.SharedGames.Count + 1);
@@ -535,6 +638,7 @@ public sealed class QueryDispatcher
             SubTitle = FriendRowFormatter.BuildSubtitle(friend, isFavorite),
             IcoPath = iconPath,
             ContextData = new ContextData.Friend(friend.SteamId64, friend.PersonaName, isFavorite, friend.IsInGame, friend.CurrentGameAppId),
+            Preview = PreviewBuilders.Friend(friend, isFavorite, iconPath),
             Action = _ => LaunchInBackground(dmUri, $"Open chat failed: {friend.PersonaName}")
         };
     }
@@ -545,6 +649,7 @@ public sealed class QueryDispatcher
         SubTitle = MultiplayerRowFormatter.BuildSubtitle(friendPersonaName, game),
         IcoPath = _iconResolver.Resolve(game.AppId),
         ContextData = new ContextData.Game(game.AppId, game.Name, InstallPath: null),
+        Preview = PreviewBuilders.MultiplayerGame(game, friendPersonaName, _iconResolver.Resolve(game.AppId)),
         Action = _ => LaunchInBackground(SteamUriBuilder.RunGame(game.AppId), $"Launch failed: {game.Name}")
     };
 
@@ -562,6 +667,7 @@ public sealed class QueryDispatcher
         TitleHighlightData = match?.MatchData,
         Score = match?.Score ?? 0,
         ContextData = new ContextData.Game(game.AppId, game.Name, game.FullInstallPath),
+        Preview = PreviewBuilders.Game(game, meta, friendsPlaying, game.IconPath ?? _defaultIconPath),
         Action = _ => actionOverride?.Invoke() ?? LaunchInBackground(SteamUriBuilder.RunGame(game.AppId), $"Launch failed: {game.Name}")
     };
 
@@ -578,6 +684,7 @@ public sealed class QueryDispatcher
             SubTitle = StoreRowFormatter.BuildSubtitle(game, meta, friendsPlaying),
             IcoPath = game.IconUrl ?? _iconResolver.Resolve(game.AppId),
             ContextData = new ContextData.Game(game.AppId, game.Name, InstallPath: null),
+            Preview = PreviewBuilders.StoreGame(game, meta, friendsPlaying, game.IconUrl ?? _iconResolver.Resolve(game.AppId)),
             Action = _ => LaunchInBackground(uri, $"Open failed: {game.Name}")
         };
     }

@@ -45,6 +45,11 @@ public static class QueryParser
         if (search.StartsWith("verify ", StringComparison.OrdinalIgnoreCase))
             return new ParsedQuery.VerifyGame(search[7..].Trim());
 
+        if (search.Equals("uninstall", StringComparison.OrdinalIgnoreCase))
+            return new ParsedQuery.UninstallGame(null);
+        if (search.StartsWith("uninstall ", StringComparison.OrdinalIgnoreCase))
+            return new ParsedQuery.UninstallGame(search[10..].Trim());
+
         if (search.Equals("settings", StringComparison.OrdinalIgnoreCase))
             return new ParsedQuery.OpenSteamSettings();
         if (search.Equals("downloads", StringComparison.OrdinalIgnoreCase))

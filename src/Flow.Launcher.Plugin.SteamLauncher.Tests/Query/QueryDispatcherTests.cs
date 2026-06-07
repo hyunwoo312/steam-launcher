@@ -104,7 +104,33 @@ public sealed class QueryDispatcherTests
         results.Should().HaveCount(4);
         results[0].Title.Should().Be("Launch Steam");
         results.Skip(1).Select(r => r.Title).Should().Equal("Alpha", "Bravo", "Charlie");
+        results[1].Preview.Description.Should().Contain("Alpha (1)");
+        results[1].Preview.Description.Should().Contain(@"Install path: C:\steam\steamapps\common\Alpha");
         matcher.DidNotReceiveWithAnyArgs().Match(default!, default!);
+    }
+
+    [Fact]
+    public async Task FastEmpty_returns_launch_row_and_library_without_remote_enrichment()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(Task.FromResult<IReadOnlyList<InstalledGame>>(
+            [Game(1, "Alpha"), Game(2, "Bravo")]));
+        var storeSearch = Substitute.For<IStoreSearchService>();
+        var metadata = Substitute.For<IGameMetadataService>();
+        var friends = Substitute.For<IFriendsService>();
+        var dispatcher = BuildDispatcher(
+            library,
+            Substitute.For<IFuzzyMatcher>(),
+            storeSearch: storeSearch,
+            metadata: metadata,
+            friends: friends);
+
+        var results = await dispatcher.BuildFastEmptyResultsAsync(CancellationToken.None);
+
+        results.Select(r => r.Title).Should().Equal("Launch Steam", "Alpha", "Bravo");
+        await storeSearch.DidNotReceiveWithAnyArgs().SearchAsync(default!, default);
+        await metadata.DidNotReceiveWithAnyArgs().GetAsync(default, default);
+        await friends.DidNotReceiveWithAnyArgs().GetFriendsAsync(default);
     }
 
     [Fact]
@@ -139,6 +165,34 @@ public sealed class QueryDispatcherTests
         var results = await dispatcher.DispatchAsync(new ParsedQuery.LibraryFilter("x"), CancellationToken.None);
 
         results.Select(r => r.Title).Should().Equal("Higher", "Lower");
+    }
+
+    [Fact]
+    public async Task FastFilter_returns_library_matches_without_waiting_for_remote_enrichment()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(Task.FromResult<IReadOnlyList<InstalledGame>>(
+            [Game(1, "Slay the Spire"), Game(2, "Slay the Spire 2"), Game(3, "Other")]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match("slay", "Slay the Spire").Returns(Hit(80));
+        matcher.Match("slay", "Slay the Spire 2").Returns(Hit(100));
+        matcher.Match("slay", "Other").Returns(Miss());
+        var storeSearch = Substitute.For<IStoreSearchService>();
+        var metadata = Substitute.For<IGameMetadataService>();
+        var friends = Substitute.For<IFriendsService>();
+        var dispatcher = BuildDispatcher(
+            library,
+            matcher,
+            storeSearch: storeSearch,
+            metadata: metadata,
+            friends: friends);
+
+        var results = await dispatcher.BuildFastFilteredResultsAsync("slay", CancellationToken.None);
+
+        results.Select(r => r.Title).Should().Equal("Slay the Spire 2", "Slay the Spire");
+        await storeSearch.DidNotReceiveWithAnyArgs().SearchAsync(default!, default);
+        await metadata.DidNotReceiveWithAnyArgs().GetAsync(default, default);
+        await friends.DidNotReceiveWithAnyArgs().GetFriendsAsync(default);
     }
 
     [Fact]
@@ -461,7 +515,7 @@ public sealed class QueryDispatcherTests
     }
 
     [Fact]
-    public async Task AccountSwitcher_dispatch_filtersOutCurrentAccount()
+    public async Task AccountSwitcher_dispatch_showsCurrentAccountThenSwitchableAccounts()
     {
         var switcher = Substitute.For<IAccountSwitcherService>();
         switcher.GetKnownAccounts().Returns(new List<KnownAccount>
@@ -476,8 +530,11 @@ public sealed class QueryDispatcherTests
 
         var results = await dispatcher.DispatchAsync(new ParsedQuery.AccountSwitcher(), CancellationToken.None);
 
-        results.Should().ContainSingle().Which.Title.Should().Be("Bravo");
-        results[0].SubTitle.Should().NotContain("Currently signed in");
+        results.Select(r => r.Title).Should().Equal("Current: Alpha", "Bravo");
+        results[0].SubTitle.Should().Contain("Already active").And.Contain("alpha");
+        results[1].SubTitle.Should().Contain("Press Enter to confirm switch").And.Contain("bravo");
+        results[0].Preview.Description.Should().Contain("SteamID64: 76561198000000001");
+        results[1].Preview.Description.Should().Contain("Available to switch");
     }
 
     [Fact]
@@ -495,8 +552,7 @@ public sealed class QueryDispatcherTests
 
         var results = await dispatcher.DispatchAsync(new ParsedQuery.AccountSwitcher(), CancellationToken.None);
 
-        results.Should().ContainSingle()
-            .Which.Title.Should().Contain("No other accounts");
+        results.Select(r => r.Title).Should().Equal("Current: Alpha", "No other accounts saved on this machine");
     }
 
     [Fact]
@@ -545,7 +601,8 @@ public sealed class QueryDispatcherTests
 
         results.Should().ContainSingle();
         results[0].Title.Should().Be("Confirm: switch to Bravo");
-        results[0].SubTitle.Should().Contain("Steam will be terminated");
+        results[0].SubTitle.Should().Contain("Target account: bravo");
+        results[0].SubTitle.Should().Contain("Steam will close and reopen");
         results[0].IcoPath.Should().Be(@"C:\steam\bravo.png");
     }
 
@@ -743,6 +800,58 @@ public sealed class QueryDispatcherTests
 
         results.Select(r => r.Title).Should().Equal("Alpha", "Bravo");
         results.Should().AllSatisfy(r => r.SubTitle.Should().StartWith("Verify integrity · "));
+    }
+
+    [Fact]
+    public async Task FastVerify_returns_verify_rows_without_remote_enrichment()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(Task.FromResult<IReadOnlyList<InstalledGame>>(
+            [Game(1, "Alpha"), Game(2, "Bravo")]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match("a", "Alpha").Returns(Hit(80));
+        matcher.Match("a", "Bravo").Returns(Miss());
+        var storeSearch = Substitute.For<IStoreSearchService>();
+        var metadata = Substitute.For<IGameMetadataService>();
+        var friends = Substitute.For<IFriendsService>();
+        var dispatcher = BuildDispatcher(
+            library,
+            matcher,
+            storeSearch: storeSearch,
+            metadata: metadata,
+            friends: friends);
+
+        var results = await dispatcher.BuildFastVerifyResultsAsync("a", CancellationToken.None);
+
+        results.Should().ContainSingle()
+            .Which.SubTitle.Should().StartWith("Verify integrity");
+        await storeSearch.DidNotReceiveWithAnyArgs().SearchAsync(default!, default);
+        await metadata.DidNotReceiveWithAnyArgs().GetAsync(default, default);
+        await friends.DidNotReceiveWithAnyArgs().GetFriendsAsync(default);
+    }
+
+    [Fact]
+    public async Task UninstallGame_Filter_FuzzyMatchesLibraryAndLaunchesSteamUninstall()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(Task.FromResult<IReadOnlyList<InstalledGame>>(
+            [Game(1, "Alpha"), Game(2, "Bravo"), Game(3, "Charlie")]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match("a", "Alpha").Returns(Hit(80));
+        matcher.Match("a", "Bravo").Returns(Hit(40));
+        matcher.Match("a", "Charlie").Returns(Miss());
+        var dispatcher = BuildDispatcher(
+            library,
+            matcher,
+            actionKeyword: "steam");
+
+        var results = await dispatcher.DispatchAsync(new ParsedQuery.UninstallGame("a"), CancellationToken.None);
+
+        results.Select(r => r.Title).Should().Equal("Alpha", "Bravo");
+        results.Should().AllSatisfy(r => r.SubTitle.Should().StartWith("Uninstall · "));
+        results[0].SubTitle.Should().Contain("Steam will ask for confirmation");
+        var actionResult = results[0].Action!(new ActionContext());
+        actionResult.Should().BeTrue();
     }
 
     [Fact]
