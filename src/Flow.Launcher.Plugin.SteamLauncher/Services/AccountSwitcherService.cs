@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Text;
 using Flow.Launcher.Plugin.SteamLauncher.Models;
 using Flow.Launcher.Plugin.SteamLauncher.Steam;
 using Flow.Launcher.Plugin.SteamLauncher.Vdf;
@@ -21,6 +22,7 @@ public sealed class AccountSwitcherService(
 
     private static readonly TimeSpan KillTimeout = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan SettleDelay = TimeSpan.FromSeconds(4);
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
     public IReadOnlyList<KnownAccount> GetKnownAccounts()
     {
@@ -99,8 +101,9 @@ public sealed class AccountSwitcherService(
         {
             await Task.Run(() => processController.KillAllSteamProcesses(KillTimeout), ct).ConfigureAwait(false);
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            logException?.Invoke(nameof(AccountSwitcherService), "Failed to stop running Steam processes", ex);
             return SwitchResult.KillFailed();
         }
 
@@ -130,8 +133,9 @@ public sealed class AccountSwitcherService(
                 return SwitchResult.RegistryWriteFailed();
             }
         }
-        catch (Exception)
+        catch (Exception ex)
         {
+            logException?.Invoke(nameof(AccountSwitcherService), "Failed to write Steam auto-login registry values", ex);
             return SwitchResult.RegistryWriteFailed();
         }
 
@@ -182,7 +186,7 @@ public sealed class AccountSwitcherService(
         if (File.Exists(loginUsersPath))
             File.Copy(loginUsersPath, backupPath, overwrite: true);
 
-        File.WriteAllText(tempPath, rendered);
+        File.WriteAllText(tempPath, rendered, Utf8NoBom);
         File.Move(tempPath, loginUsersPath, overwrite: true);
     }
 }

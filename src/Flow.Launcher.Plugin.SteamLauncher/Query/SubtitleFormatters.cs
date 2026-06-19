@@ -48,6 +48,28 @@ internal static class SubtitleFormatters
 
     public static bool IsFree(decimal? price) => price is null or 0m;
 
+    public static string Price(decimal? amount, string? currency)
+    {
+        if (IsFree(amount)) return "Free";
+
+        var value = amount!.Value;
+        return currency?.ToUpperInvariant() switch
+        {
+            null or "" or "USD" => $"${value:F2}",
+            "EUR" => $"€{value:F2}",
+            "GBP" => $"£{value:F2}",
+            "JPY" or "CNY" => $"¥{value:F2}",
+            "KRW" => $"₩{value:F2}",
+            "RUB" => $"₽{value:F2}",
+            "INR" => $"₹{value:F2}",
+            "BRL" => $"R${value:F2}",
+            "CAD" => $"CA${value:F2}",
+            "AUD" => $"A${value:F2}",
+            "MXN" => $"MX${value:F2}",
+            var code => $"{value:F2} {code}"
+        };
+    }
+
     private static string HoursLabel(long minutes, bool includePlayedSuffix)
     {
         var suffix = includePlayedSuffix ? " played" : string.Empty;

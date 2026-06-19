@@ -10,13 +10,16 @@ public sealed class LocalLibraryService(
     IVdfParser parser,
     IGameIconResolver iconResolver,
     Action<string, string, Exception>? logException = null)
-    : ILocalLibraryService
+    : ILocalLibraryService, IDisposable
 {
     // 228980 = Steamworks Common Redistributables (shared runtime, not a user-facing game).
     private static readonly HashSet<uint> HiddenAppIds = [228980];
 
     private readonly object _cacheLock = new();
+    private readonly List<FileSystemWatcher> _watchers = [];
     private IReadOnlyList<InstalledGame>? _cache;
+    private bool _watchersInitialized;
+    private bool _disposed;
 
     public Task<IReadOnlyList<InstalledGame>> GetInstalledGamesAsync(CancellationToken ct)
     {
@@ -42,7 +45,8 @@ public sealed class LocalLibraryService(
 
         var games = new List<InstalledGame>();
 
-        foreach (var libraryPath in pathResolver.GetLibraryPaths())
+        var libraryPaths = pathResolver.GetLibraryPaths();
+        foreach (var libraryPath in libraryPaths)
         {
             ct.ThrowIfCancellationRequested();
 
@@ -59,6 +63,8 @@ public sealed class LocalLibraryService(
                     games.Add(game);
             }
         }
+
+        EnsureWatchers(libraryPaths);
 
         games.Sort((a, b) =>
         {
@@ -186,5 +192,57 @@ public sealed class LocalLibraryService(
         catch (VdfParseException) { }
         catch (SteamPathNotFoundException) { }
         return (totals, recent);
+    }
+
+    public void InvalidateCache()
+    {
+        lock (_cacheLock)
+            _cache = null;
+    }
+
+    private void EnsureWatchers(IReadOnlyList<string> libraryPaths)
+    {
+        lock (_cacheLock)
+        {
+            if (_watchersInitialized || _disposed) return;
+            _watchersInitialized = true;
+        }
+
+        foreach (var libraryPath in libraryPaths)
+        {
+            var steamappsDir = Path.Combine(libraryPath, "steamapps");
+            if (!Directory.Exists(steamappsDir)) continue;
+
+            try
+            {
+                var watcher = new FileSystemWatcher(steamappsDir, "appmanifest_*.acf")
+                {
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size
+                };
+                watcher.Created += (_, _) => InvalidateCache();
+                watcher.Deleted += (_, _) => InvalidateCache();
+                watcher.Renamed += (_, _) => InvalidateCache();
+                watcher.Changed += (_, _) => InvalidateCache();
+                watcher.EnableRaisingEvents = true;
+                _watchers.Add(watcher);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+            {
+                logException?.Invoke(nameof(LocalLibraryService), $"Failed to watch {steamappsDir} for library changes", ex);
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        lock (_cacheLock)
+        {
+            if (_disposed) return;
+            _disposed = true;
+        }
+
+        foreach (var watcher in _watchers)
+            watcher.Dispose();
+        _watchers.Clear();
     }
 }

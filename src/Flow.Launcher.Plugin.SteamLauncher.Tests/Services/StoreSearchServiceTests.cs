@@ -79,7 +79,8 @@ public sealed class StoreSearchServiceTests
 
         var results = await service.SearchAsync("cs", CancellationToken.None);
 
-        results[0].PriceUsd.Should().Be(14.99m);
+        results[0].Price.Should().Be(14.99m);
+        results[0].Currency.Should().Be("USD");
         results[0].DiscountPercent.Should().Be(25);
     }
 

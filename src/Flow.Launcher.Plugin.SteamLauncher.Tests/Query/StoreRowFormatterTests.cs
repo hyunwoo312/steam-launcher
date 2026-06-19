@@ -7,13 +7,38 @@ namespace Flow.Launcher.Plugin.SteamLauncher.Tests.Query;
 
 public sealed class StoreRowFormatterTests
 {
-    private static StoreGame Game(decimal? price = 19.99m, bool owned = false) => new()
+    private static StoreGame Game(decimal? price = 19.99m, bool owned = false, string? currency = null) => new()
     {
         AppId = 730,
         Name = "CS2",
-        PriceUsd = price,
+        Price = price,
+        Currency = currency,
         IsOwned = owned
     };
+
+    [Fact]
+    public void Subtitle_NullCurrency_RendersDollarPrefix()
+    {
+        var subtitle = StoreRowFormatter.BuildSubtitle(Game(price: 14.99m), GameMetadata.Empty);
+
+        subtitle.Should().StartWith("$14.99");
+    }
+
+    [Fact]
+    public void Subtitle_EuroCurrency_RendersEuroPrefix()
+    {
+        var subtitle = StoreRowFormatter.BuildSubtitle(Game(price: 14.99m, currency: "EUR"), GameMetadata.Empty);
+
+        subtitle.Should().StartWith("€14.99");
+    }
+
+    [Fact]
+    public void Subtitle_UnknownCurrency_RendersAmountWithCode()
+    {
+        var subtitle = StoreRowFormatter.BuildSubtitle(Game(price: 49.90m, currency: "PLN"), GameMetadata.Empty);
+
+        subtitle.Should().StartWith("49.90 PLN");
+    }
 
     [Fact]
     public void Subtitle_NoFriendsPlaying_OmitsSuffix()

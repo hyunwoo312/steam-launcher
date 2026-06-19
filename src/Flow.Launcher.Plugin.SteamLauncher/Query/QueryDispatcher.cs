@@ -1,3 +1,4 @@
+using System.Net.NetworkInformation;
 using Flow.Launcher.Plugin.SharedModels;
 using Flow.Launcher.Plugin.SteamLauncher.Cache;
 using Flow.Launcher.Plugin.SteamLauncher.Models;
@@ -33,6 +34,7 @@ public sealed class QueryDispatcher
     private readonly string? _localPersonaName;
     private readonly string _defaultIconPath;
     private readonly Action<string, string, Exception> _logException;
+    private readonly Func<bool> _isNetworkAvailable;
     private readonly ApiConfigRowBuilder _apiConfigRows;
 
     public QueryDispatcher(
@@ -58,7 +60,8 @@ public sealed class QueryDispatcher
         Action invalidateUserCaches,
         string? localPersonaName,
         string defaultIconPath,
-        Action<string, string, Exception> logException)
+        Action<string, string, Exception> logException,
+        Func<bool>? isNetworkAvailable = null)
     {
         _localLibrary = localLibrary;
         _fuzzyMatcher = fuzzyMatcher;
@@ -80,6 +83,7 @@ public sealed class QueryDispatcher
         _localPersonaName = localPersonaName;
         _defaultIconPath = defaultIconPath;
         _logException = logException;
+        _isNetworkAvailable = isNetworkAvailable ?? NetworkInterface.GetIsNetworkAvailable;
         _apiConfigRows = new ApiConfigRowBuilder(
             apiKeyStore, settings, saveSettings, invalidateUserCaches, getActiveSteamId, changeQuery, showToast, actionKeyword, defaultIconPath, logException);
     }
@@ -129,7 +133,7 @@ public sealed class QueryDispatcher
             ? "Open the Steam client window"
             : $"Open the Steam client window · Signed in as {_localPersonaName}";
 
-        var rows = new List<Result>(libraryRows.Count + 1)
+        var rows = new List<Result>(libraryRows.Count + 2)
         {
             new()
             {
@@ -140,6 +144,7 @@ public sealed class QueryDispatcher
                 Action = _ => LaunchInBackground(SteamUriBuilder.MainWindow(), "Launch Steam failed")
             }
         };
+        if (IsOffline()) rows.Add(OfflineRow());
         rows.AddRange(libraryRows);
         return rows;
     }
@@ -175,6 +180,9 @@ public sealed class QueryDispatcher
     private async Task<List<Result>> BuildStoreSearchResultsAsync(string query, CancellationToken ct)
     {
         var results = await _storeSearch.SearchAsync(query, ct).ConfigureAwait(false);
+        if (results.Count == 0 && IsOffline())
+            return [OfflineRow()];
+
         var friendsPlaying = await FetchFriendsPlayingMapAsync(ct).ConfigureAwait(false);
         return await BuildStoreRowsAsync(results.ToList(), friendsPlaying, ct).ConfigureAwait(false);
     }
@@ -305,9 +313,8 @@ public sealed class QueryDispatcher
         IEnumerable<uint> appIds, CancellationToken ct)
     {
         var ids = appIds.Distinct().ToList();
-        var tasks = ids.ToDictionary(id => id, id => _metadata.GetAsync(id, ct));
-        await Task.WhenAll(tasks.Values).ConfigureAwait(false);
-        return tasks.ToDictionary(kv => kv.Key, kv => kv.Value.Result);
+        var metas = await Task.WhenAll(ids.Select(id => _metadata.GetAsync(id, ct))).ConfigureAwait(false);
+        return ids.Zip(metas).ToDictionary(pair => pair.First, pair => pair.Second);
     }
 
     private async Task<List<Result>> BuildMeResultsAsync(CancellationToken ct)
@@ -317,7 +324,7 @@ public sealed class QueryDispatcher
 
         var profile = await _userProfile.GetMyProfileAsync(ct).ConfigureAwait(false);
         if (profile is null)
-            return [SingleRow("Could not load Steam profile", "Check your API key/Steam ID with `st api`, or try again later")];
+            return [IsOffline() ? OfflineRow() : SingleRow("Could not load Steam profile", "Check your API key/Steam ID with `st api`, or try again later")];
 
         ulong.TryParse(_settings.SteamId64, out var steamId);
         var profileUri = SteamUriBuilder.Profile(steamId);
@@ -353,6 +360,9 @@ public sealed class QueryDispatcher
             return [ConfigureFirstHint()];
 
         var games = await _ownedGames.GetOwnedGamesAsync(ct).ConfigureAwait(false);
+        if (games.Count == 0 && IsOffline())
+            return [OfflineRow()];
+
         var unplayed = games.Where(g => g.PlaytimeMinutes == 0).ToList();
         if (unplayed.Count == 0)
             return [SingleRow("No never-played games found", "Steam reports playtime for every owned game returned by the API")];
@@ -383,7 +393,7 @@ public sealed class QueryDispatcher
 
         var friends = await _friends.GetFriendsAsync(ct).ConfigureAwait(false);
         if (friends.Count == 0)
-            return [SingleRow("No Steam friends loaded", "Steam returned no friends, your profile may be private, or the API call failed")];
+            return [IsOffline() ? OfflineRow() : SingleRow("No Steam friends loaded", "Steam returned no friends, your profile may be private, or the API call failed")];
 
         var favorites = _settings.FavoriteFriendIds.ToHashSet();
 
@@ -705,6 +715,16 @@ public sealed class QueryDispatcher
     private Result ConfigureFirstHint() => SingleRow(
         "Configure your Steam Web API key + Steam ID first",
         "Run `st api <key>` and `st api id <steamid64>`");
+
+    private bool IsOffline() => !_isNetworkAvailable();
+
+    private Result OfflineRow() => new()
+    {
+        Title = "You're offline",
+        SubTitle = "Connect to the internet to load Steam friends, profile, and store data",
+        IcoPath = _defaultIconPath,
+        Score = int.MaxValue - 1
+    };
 
     private Result SingleRow(string title, string subtitle) => new()
     {

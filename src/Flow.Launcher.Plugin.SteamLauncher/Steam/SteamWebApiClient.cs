@@ -7,7 +7,10 @@ using Flow.Launcher.Plugin.SteamLauncher.Security;
 
 namespace Flow.Launcher.Plugin.SteamLauncher.Steam;
 
-public sealed class SteamWebApiClient(HttpClient http, IApiKeyStore keyStore) : ISteamWebApiClient
+public sealed class SteamWebApiClient(
+    HttpClient http,
+    IApiKeyStore keyStore,
+    Action<string, string, Exception>? logException = null) : ISteamWebApiClient
 {
     private const string ServerInfoEndpoint = "ISteamWebAPIUtil/GetServerInfo/v1/";
     private const string OwnedGamesEndpoint = "IPlayerService/GetOwnedGames/v1/";
@@ -28,7 +31,13 @@ public sealed class SteamWebApiClient(HttpClient http, IApiKeyStore keyStore) : 
         try
         {
             using var response = await http.GetAsync(ServerInfoEndpoint, ct).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) return false;
+            if (!response.IsSuccessStatusCode)
+            {
+                logException?.Invoke(nameof(SteamWebApiClient),
+                    $"Steam API health check returned HTTP {(int)response.StatusCode} {response.ReasonPhrase}",
+                    new HttpRequestException($"HTTP {(int)response.StatusCode}"));
+                return false;
+            }
 
             var payload = await response.Content
                 .ReadFromJsonAsync(SteamJsonContext.Default.HealthCheckResponse, ct)
@@ -37,8 +46,16 @@ public sealed class SteamWebApiClient(HttpClient http, IApiKeyStore keyStore) : 
             return payload?.Response?.ServerTime is > 0;
         }
         catch (OperationCanceledException) { throw; }
-        catch (HttpRequestException) { return false; }
-        catch (JsonException) { return false; }
+        catch (HttpRequestException ex)
+        {
+            logException?.Invoke(nameof(SteamWebApiClient), "Steam API health check failed (network error)", ex);
+            return false;
+        }
+        catch (JsonException ex)
+        {
+            logException?.Invoke(nameof(SteamWebApiClient), "Steam API health check returned invalid JSON", ex);
+            return false;
+        }
     }
 
     public async Task<StoreSearchResponse?> SearchStoreAsync(string query, string countryCode, CancellationToken ct)
@@ -137,13 +154,34 @@ public sealed class SteamWebApiClient(HttpClient http, IApiKeyStore keyStore) : 
         try
         {
             using var response = await http.GetAsync(uri, ct).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode) return null;
+            if (!response.IsSuccessStatusCode)
+            {
+                logException?.Invoke(nameof(SteamWebApiClient),
+                    $"Steam API request to {Redact(uri)} returned HTTP {(int)response.StatusCode} {response.ReasonPhrase}",
+                    new HttpRequestException($"HTTP {(int)response.StatusCode}"));
+                return null;
+            }
 
             return await response.Content.ReadFromJsonAsync(typeInfo, ct).ConfigureAwait(false);
         }
         catch (OperationCanceledException) { throw; }
-        catch (HttpRequestException) { return null; }
-        catch (JsonException) { return null; }
+        catch (HttpRequestException ex)
+        {
+            logException?.Invoke(nameof(SteamWebApiClient), $"Steam API request to {Redact(uri)} failed (network error)", ex);
+            return null;
+        }
+        catch (JsonException ex)
+        {
+            logException?.Invoke(nameof(SteamWebApiClient), $"Steam API response from {Redact(uri)} was not valid JSON", ex);
+            return null;
+        }
+    }
+
+    private static string Redact(Uri uri)
+    {
+        var text = uri.IsAbsoluteUri ? uri.GetLeftPart(UriPartial.Path) : uri.OriginalString;
+        var queryStart = text.IndexOf('?', StringComparison.Ordinal);
+        return queryStart >= 0 ? text[..queryStart] : text;
     }
 
     private static IEnumerable<List<T>> Chunk<T>(IReadOnlyList<T> source, int size)

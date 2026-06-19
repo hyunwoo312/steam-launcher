@@ -27,7 +27,7 @@ public sealed class VdfParser : IVdfParser
     {
         try
         {
-            return Parse(File.ReadAllText(filePath));
+            return Parse(File.ReadAllText(filePath, Encoding.UTF8));
         }
         catch (VdfParseException ex)
         {

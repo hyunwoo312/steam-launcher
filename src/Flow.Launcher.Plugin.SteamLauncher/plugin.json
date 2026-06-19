@@ -4,7 +4,7 @@
   "Name": "Steam Launcher",
   "Description": "Launch games, search the store, manage friends, switch accounts, set status, find shared multiplayer games",
   "Author": "Hyun",
-  "Version": "1.1.0",
+  "Version": "1.1.1",
   "Language": "csharp",
   "Website": "https://github.com/hyunwoo312/steam-launcher",
   "IcoPath": "Images\\steam.png",

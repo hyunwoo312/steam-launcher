@@ -45,9 +45,13 @@ public sealed class SteamProcessController(ISteamPathResolver pathResolver) : IS
             Thread.Sleep(250);
         }
 
-        var remaining = SteamProcessNames
-            .Where(n => Process.GetProcessesByName(n).Length > 0)
-            .ToList();
+        var remaining = new List<string>();
+        foreach (var n in SteamProcessNames)
+        {
+            var procs = Process.GetProcessesByName(n);
+            try { if (procs.Length > 0) remaining.Add(n); }
+            finally { foreach (var p in procs) { try { p.Dispose(); } catch { } } }
+        }
         if (remaining.Count > 0)
             throw new InvalidOperationException(
                 $"Steam processes still running after {timeout.TotalSeconds:0.#}s: {string.Join(", ", remaining)}");

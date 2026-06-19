@@ -1,12 +1,14 @@
 using System.Collections.Concurrent;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Text;
 using System.Text.Json;
 
 namespace Flow.Launcher.Plugin.SteamLauncher.Cache;
 
 public sealed class MemoryCacheStore : ICacheStore, IDisposable
 {
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
     private readonly Dictionary<string, CachePolicy> _policies;
     private readonly ConcurrentDictionary<(string Domain, string Key), Entry> _entries = new();
     private readonly Func<DateTimeOffset> _clock;
@@ -85,7 +87,7 @@ public sealed class MemoryCacheStore : ICacheStore, IDisposable
             if (!File.Exists(path)) continue;
             try
             {
-                var json = File.ReadAllText(path);
+                var json = File.ReadAllText(path, Encoding.UTF8);
                 var snapshot = JsonSerializer.Deserialize<Dictionary<string, PersistedEntry>>(json);
                 if (snapshot is null) continue;
 
@@ -117,7 +119,7 @@ public sealed class MemoryCacheStore : ICacheStore, IDisposable
             try
             {
                 var json = JsonSerializer.Serialize(snapshot);
-                File.WriteAllText(Path.Combine(_persistenceDir!, $"cache_{domain}.json"), json);
+                File.WriteAllText(Path.Combine(_persistenceDir!, $"cache_{domain}.json"), json, Utf8NoBom);
             }
             catch (IOException) { }
             catch (UnauthorizedAccessException) { }
