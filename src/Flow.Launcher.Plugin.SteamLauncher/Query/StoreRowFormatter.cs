@@ -15,7 +15,7 @@ internal static class StoreRowFormatter
         }
         else
         {
-            parts.Add(SubtitleFormatters.IsFree(game.PriceUsd) ? "Free" : $"${game.PriceUsd:F2}");
+            parts.Add(SubtitleFormatters.Price(game.Price, game.Currency));
             if (game.DiscountPercent is > 0) parts.Add($"-{game.DiscountPercent}%");
             if (!string.IsNullOrEmpty(meta.ReleaseDate)) parts.Add(meta.ReleaseDate);
         }

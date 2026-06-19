@@ -57,7 +57,8 @@ public sealed class QueryDispatcherTests
         Action<string, bool>? changeQuery = null,
         string actionKeyword = "st",
         Func<ulong?>? getActiveSteamId = null,
-        Action? invalidateUserCaches = null)
+        Action? invalidateUserCaches = null,
+        Func<bool>? isNetworkAvailable = null)
     {
         if (metadata is null)
         {
@@ -87,7 +88,8 @@ public sealed class QueryDispatcherTests
             invalidateUserCaches ?? (() => { }),
             localPersonaName: null,
             "icon.png",
-            NoLog);
+            NoLog,
+            isNetworkAvailable ?? (() => true));
     }
 
     [Fact]
@@ -320,6 +322,41 @@ public sealed class QueryDispatcherTests
 
         results.Should().ContainSingle()
             .Which.Title.Should().Contain("Configure");
+    }
+
+    [Fact]
+    public async Task Empty_query_when_offline_inserts_offline_row_after_launch()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(Task.FromResult<IReadOnlyList<InstalledGame>>(
+            [Game(1, "Alpha")]));
+        var dispatcher = BuildDispatcher(
+            library, Substitute.For<IFuzzyMatcher>(), isNetworkAvailable: () => false);
+
+        var results = await dispatcher.DispatchAsync(new ParsedQuery.Empty(), CancellationToken.None);
+
+        results[0].Title.Should().Be("Launch Steam");
+        results.Select(r => r.Title).Should().Contain("You're offline");
+    }
+
+    [Fact]
+    public async Task FriendsList_WhenOfflineAndEmpty_ShowsOfflineRow()
+    {
+        var friends = Substitute.For<IFriendsService>();
+        friends.GetFriendsAsync(Arg.Any<CancellationToken>()).Returns(new List<Friend>());
+        var keyStore = Substitute.For<IApiKeyStore>();
+        keyStore.IsConfigured.Returns(true);
+        var dispatcher = BuildDispatcher(
+            Substitute.For<ILocalLibraryService>(),
+            Substitute.For<IFuzzyMatcher>(),
+            keyStore: keyStore,
+            settings: new PluginSettings { SteamId64 = "76561198000000001" },
+            friends: friends,
+            isNetworkAvailable: () => false);
+
+        var results = await dispatcher.DispatchAsync(new ParsedQuery.FriendsList(null), CancellationToken.None);
+
+        results.Should().ContainSingle().Which.Title.Should().Be("You're offline");
     }
 
     [Fact]

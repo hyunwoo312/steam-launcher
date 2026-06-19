@@ -5,7 +5,8 @@ public sealed record StoreGame
     public required uint AppId { get; init; }
     public required string Name { get; init; }
     public string? IconUrl { get; init; }
-    public decimal? PriceUsd { get; init; }
+    public decimal? Price { get; init; }
+    public string? Currency { get; init; }
     public int? DiscountPercent { get; init; }
     public bool IsOwned { get; init; }
 

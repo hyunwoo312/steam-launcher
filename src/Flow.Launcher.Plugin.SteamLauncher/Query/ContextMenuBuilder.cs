@@ -110,10 +110,7 @@ internal sealed class ContextMenuBuilder
                 Action = _ =>
                 {
                     if (!f.IsInGame)
-                    {
-                        _logException(nameof(ContextMenuBuilder), $"Join game ignored: {f.PersonaName} not in game", new InvalidOperationException("not in game"));
                         return true;
-                    }
                     LaunchSteamUri(joinUri, $"Join game failed: {f.PersonaName}");
                     return true;
                 }

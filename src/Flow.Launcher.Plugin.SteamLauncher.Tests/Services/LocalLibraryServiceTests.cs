@@ -46,7 +46,7 @@ public sealed class LocalLibraryServiceTests : IDisposable
     [Fact]
     public async Task GetInstalledGamesAsync_ParsesValidManifest_ReturnsGame()
     {
-        var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
+        using var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
 
         var games = await service.GetInstalledGamesAsync(CancellationToken.None);
 
@@ -61,7 +61,7 @@ public sealed class LocalLibraryServiceTests : IDisposable
     public async Task GetInstalledGamesAsync_PopulatesIconPathFromResolver()
     {
         _iconResolver.Resolve(730u).Returns("https://example.com/icon.jpg");
-        var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
+        using var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
 
         var games = await service.GetInstalledGamesAsync(CancellationToken.None);
 
@@ -71,7 +71,7 @@ public sealed class LocalLibraryServiceTests : IDisposable
     [Fact]
     public async Task GetInstalledGamesAsync_NoPlaytimeAvailable_ReturnsNullPlaytime()
     {
-        var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
+        using var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
 
         var games = await service.GetInstalledGamesAsync(CancellationToken.None);
 
@@ -81,7 +81,7 @@ public sealed class LocalLibraryServiceTests : IDisposable
     [Fact]
     public async Task GetInstalledGamesAsync_CorruptManifest_IsSkipped()
     {
-        var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
+        using var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
 
         var games = await service.GetInstalledGamesAsync(CancellationToken.None);
 
@@ -103,7 +103,7 @@ public sealed class LocalLibraryServiceTests : IDisposable
                 "StateFlags" "4"
             }
             """);
-        var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
+        using var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
 
         var games = await service.GetInstalledGamesAsync(CancellationToken.None);
 
@@ -117,11 +117,26 @@ public sealed class LocalLibraryServiceTests : IDisposable
         var pathResolverSpy = Substitute.For<ISteamPathResolver>();
         pathResolverSpy.GetLibraryPaths().Returns([_tempLibrary]);
         pathResolverSpy.GetSteamInstallPath().Returns(_tempSteamRoot);
-        var service = new LocalLibraryService(pathResolverSpy, _parser, _iconResolver);
+        using var service = new LocalLibraryService(pathResolverSpy, _parser, _iconResolver);
 
         await service.GetInstalledGamesAsync(CancellationToken.None);
         await service.GetInstalledGamesAsync(CancellationToken.None);
 
         pathResolverSpy.Received(1).GetLibraryPaths();
+    }
+
+    [Fact]
+    public async Task InvalidateCache_ForcesReloadOnNextCall()
+    {
+        var pathResolverSpy = Substitute.For<ISteamPathResolver>();
+        pathResolverSpy.GetLibraryPaths().Returns([_tempLibrary]);
+        pathResolverSpy.GetSteamInstallPath().Returns(_tempSteamRoot);
+        using var service = new LocalLibraryService(pathResolverSpy, _parser, _iconResolver);
+
+        await service.GetInstalledGamesAsync(CancellationToken.None);
+        service.InvalidateCache();
+        await service.GetInstalledGamesAsync(CancellationToken.None);
+
+        pathResolverSpy.Received(2).GetLibraryPaths();
     }
 }

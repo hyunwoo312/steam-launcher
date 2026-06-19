@@ -50,9 +50,12 @@ public sealed class FriendsService(
             return [];
         }
 
-        var byId = players.ToDictionary(
-            p => ulong.TryParse(p.SteamId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) ? id : 0UL,
-            p => p);
+        var byId = new Dictionary<ulong, Json.PlayerSummary>();
+        foreach (var p in players)
+        {
+            if (ulong.TryParse(p.SteamId, NumberStyles.None, CultureInfo.InvariantCulture, out var id) && id != 0UL)
+                byId[id] = p;
+        }
 
         var hydrated = friendIds
             .Where(id => byId.ContainsKey(id))

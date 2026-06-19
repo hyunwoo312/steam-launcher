@@ -17,6 +17,7 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IResultUpdated, IDisposab
     private ContextMenuBuilder? _contextMenuBuilder;
     private PluginInitContext? _context;
     private MemoryCacheStore? _cache;
+    private LocalLibraryService? _localLibrary;
     private HttpClient? _httpClient;
     private string _defaultIconPath = string.Empty;
     private Action<string, string, Exception> _logException = (_, _, _) => { };
@@ -36,6 +37,7 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IResultUpdated, IDisposab
         var pathResolver = new SteamPathResolver(registry, vdfParser);
         var iconResolver = new GameIconResolver(pathResolver);
         var localLibrary = new LocalLibraryService(pathResolver, vdfParser, iconResolver, _logException);
+        _localLibrary = localLibrary;
         var fuzzyMatcher = new FlowFuzzyMatcher(context.API);
 
         var settings = context.API.LoadSettingJsonStorage<PluginSettings>();
@@ -58,7 +60,7 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IResultUpdated, IDisposab
             persistenceDir: settings.Cache.PersistToDisk ? Path.Combine(settingsPath, "cache") : null);
 
         _httpClient = BuildHttpClient(context.CurrentPluginMetadata.Version);
-        var webApiClient = new SteamWebApiClient(_httpClient, apiKeyStore);
+        var webApiClient = new SteamWebApiClient(_httpClient, apiKeyStore, _logException);
 
         var ownedGames = new OwnedGamesService(webApiClient, _cache, settings);
         var userProfile = new UserProfileService(webApiClient, ownedGames, settings);
@@ -260,6 +262,7 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IResultUpdated, IDisposab
     {
         _httpClient?.Dispose();
         _cache?.Dispose();
+        _localLibrary?.Dispose();
     }
 
     private static HttpClient BuildHttpClient(string pluginVersion)

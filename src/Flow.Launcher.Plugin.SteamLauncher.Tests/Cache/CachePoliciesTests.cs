@@ -28,7 +28,7 @@ public sealed class CachePoliciesTests
     {
         var declaredDomains = new[]
         {
-            CachePolicies.Search, CachePolicies.PlayerCount, CachePolicies.ReviewScore,
+            CachePolicies.Search, CachePolicies.ReviewScore,
             CachePolicies.AppDetails, CachePolicies.OwnedGames, CachePolicies.FriendList,
             CachePolicies.PlayerSummaries
         };

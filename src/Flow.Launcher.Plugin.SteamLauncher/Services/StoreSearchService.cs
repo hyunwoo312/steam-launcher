@@ -43,7 +43,8 @@ public sealed class StoreSearchService(
                     AppId = item.Id,
                     Name = item.Name ?? $"App {item.Id}",
                     IconUrl = item.TinyImage,
-                    PriceUsd = item.Price?.FinalCents is { } cents ? cents / 100m : null,
+                    Price = item.Price?.FinalCents is { } cents ? cents / 100m : null,
+                    Currency = item.Price?.Currency,
                     DiscountPercent = item.Price?.DiscountPercent is > 0 ? item.Price.DiscountPercent : null,
                     IsOwned = owned is not null,
                     LastPlayed = owned?.LastPlayed

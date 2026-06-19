@@ -29,7 +29,7 @@ internal static class PreviewBuilders
         var lines = new List<string>
         {
             $"{game.Name} ({game.AppId})",
-            game.IsOwned ? "Owned, not installed" : $"Price: {(SubtitleFormatters.IsFree(game.PriceUsd) ? "Free" : $"${game.PriceUsd:F2}")}"
+            game.IsOwned ? "Owned, not installed" : $"Price: {SubtitleFormatters.Price(game.Price, game.Currency)}"
         };
 
         if (game.DiscountPercent is > 0)
