@@ -1,16 +1,44 @@
 name: Release
 
+# Releases are triggered by bumping "Version" in plugin.json and merging to main.
+# The check job skips the release when v<version> already exists, so ordinary merges
+# are a no-op. The tag is created from plugin.json rather than checked against it,
+# so the two cannot drift.
+
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
+  check:
+    runs-on: ubuntu-latest
+    outputs:
+      should_release: ${{ steps.version.outputs.should_release }}
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(jq -r .Version src/Flow.Launcher.Plugin.SteamLauncher/plugin.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if gh release view "v$version" >/dev/null 2>&1; then
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+          fi
+
   release:
+    needs: check
+    if: needs.check.outputs.should_release == 'true'
     runs-on: windows-latest
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
     steps:
       - uses: actions/checkout@v4
 
@@ -19,22 +47,9 @@ jobs:
         with:
           dotnet-version: 9.0.x
 
-      - name: Read version from plugin.json
-        id: version
+      - name: Verify changelog entry
         shell: pwsh
-        run: |
-          $version = (Get-Content src/Flow.Launcher.Plugin.SteamLauncher/plugin.json | ConvertFrom-Json).Version
-          echo "version=$version" >> $env:GITHUB_OUTPUT
-
-      - name: Verify tag matches plugin.json version
-        shell: pwsh
-        run: |
-          $tag = "${{ github.ref_name }}"
-          $expected = "v${{ steps.version.outputs.version }}"
-          if ($tag -ne $expected) {
-            Write-Error "Tag '$tag' does not match plugin.json version '$expected'. Bump plugin.json before tagging."
-            exit 1
-          }
+        run: ./scripts/changelog.ps1 -Check
 
       - name: Test
         run: dotnet test src/Flow.Launcher.Plugin.SteamLauncher.Tests/Flow.Launcher.Plugin.SteamLauncher.Tests.csproj -c Release
@@ -42,17 +57,20 @@ jobs:
       - name: Publish (Release)
         run: dotnet publish src/Flow.Launcher.Plugin.SteamLauncher/Flow.Launcher.Plugin.SteamLauncher.csproj -c Release -o publish
 
+      # The zip name is fixed: Flow's manifest bot matches the release asset by filename.
       - name: Package
         shell: pwsh
-        run: |
-          Compress-Archive -Path "publish/*" -DestinationPath "Flow.Launcher.Plugin.SteamLauncher.zip" -Force
+        run: Compress-Archive -Path "publish/*" -DestinationPath "Flow.Launcher.Plugin.SteamLauncher.zip" -Force
+
+      - name: Generate release notes
+        shell: pwsh
+        run: ./scripts/changelog.ps1 -ReleaseBody $env:VERSION | Out-File release-notes.md -Encoding utf8
 
       - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: Flow.Launcher.Plugin.SteamLauncher.zip
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          generate_release_notes: true
+        shell: bash
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "v$VERSION" "Flow.Launcher.Plugin.SteamLauncher.zip" \
+            --notes-file release-notes.md \
+            --target "$GITHUB_SHA"

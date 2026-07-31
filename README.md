@@ -114,6 +114,24 @@ Right-click any row to open the context menu. Items adapt to what the row repres
 
 Grab the latest zip from [Releases](https://github.com/hyunwoo312/steam-launcher/releases/latest), unzip into `%appdata%\FlowLauncher\Plugins\`, and restart Flow Launcher.
 
+## Releasing
+
+`Version` in `src/Flow.Launcher.Plugin.SteamLauncher/plugin.json` is the single source of truth. Releasing is one action:
+
+1. Bump `Version` in `plugin.json`.
+2. Add a matching `## [x.y.z] - YYYY-MM-DD` section to [`CHANGELOG.md`](CHANGELOG.md).
+3. Merge to `main`.
+
+The release workflow then tags `vx.y.z` at that commit, runs the tests, publishes the zip, and creates the GitHub release using the changelog section as its notes. Merges that don't change the version are a no-op, so the bump should be the last commit of a release cycle.
+
+CI fails if the version in `plugin.json` has no `CHANGELOG.md` entry, so a bump can't reach `main` without release notes. To check locally:
+
+```powershell
+pwsh ./scripts/changelog.ps1 -Check
+```
+
+Flow Launcher's [plugin manifest](https://github.com/Flow-Launcher/Flow.Launcher.PluginsManifest) updates itself: a bot polls this repo's latest release every few hours and takes the version from the tag and the download from the attached zip. Nothing to do there.
+
 ## License
 
 MIT

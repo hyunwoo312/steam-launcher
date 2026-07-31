@@ -2,16 +2,15 @@ name: CI
 
 on:
   push:
-    branches: [main, master]
-    paths-ignore:
-      - '**.md'
-      - 'docs/**'
-      - '.github/**'
+    branches: [main]
   pull_request:
-    branches: [main, master]
+    branches: [main]
+
+permissions:
+  contents: read
 
 jobs:
-  build-and-test:
+  check:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -20,6 +19,12 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 9.0.x
+
+      # Fails when plugin.json's version has no CHANGELOG.md entry, so a version bump
+      # cannot reach main without release notes.
+      - name: Verify changelog entry
+        shell: pwsh
+        run: ./scripts/changelog.ps1 -Check
 
       - name: Restore
         run: dotnet restore src/Flow.Launcher.Plugin.SteamLauncher.Tests/Flow.Launcher.Plugin.SteamLauncher.Tests.csproj
