@@ -13,6 +13,7 @@ public sealed class QueryDispatcher
 {
     private const int CombinedResultCap = 10;
     private const int NewResultCap = 20;
+    private const int MetadataEnrichmentCap = 30;
 
     private readonly ILocalLibraryService _localLibrary;
     private readonly IFuzzyMatcher _fuzzyMatcher;
@@ -228,7 +229,7 @@ public sealed class QueryDispatcher
     {
         var meta = await FetchMetadataAsync(games.Select(g => g.Game.AppId), ct).ConfigureAwait(false);
         return games.Select(g => BuildLibraryResult(
-            g.Game, g.Match, meta[g.Game.AppId],
+            g.Game, g.Match, MetadataFor(meta, g.Game.AppId),
             friendsPlaying.TryGetValue(g.Game.AppId, out var n) ? n : 0)).ToList();
     }
 
@@ -238,7 +239,7 @@ public sealed class QueryDispatcher
         var friendsPlaying = await FetchFriendsPlayingMapAsync(ct).ConfigureAwait(false);
         var meta = await FetchMetadataAsync(libraryGames.Select(g => g.Game.AppId), ct).ConfigureAwait(false);
         return libraryGames.Select(g => BuildLibraryResult(
-            g.Game, g.Match, meta[g.Game.AppId],
+            g.Game, g.Match, MetadataFor(meta, g.Game.AppId),
             friendsPlaying.TryGetValue(g.Game.AppId, out var n) ? n : 0,
             subtitlePrefix: "Verify integrity · ",
             actionOverride: () => LaunchInBackground(SteamUriBuilder.Validate(g.Game.AppId), $"Verify failed: {g.Game.Name}"))).ToList();
@@ -305,17 +306,28 @@ public sealed class QueryDispatcher
     {
         var meta = await FetchMetadataAsync(games.Select(g => g.AppId), ct).ConfigureAwait(false);
         return games.Select(g => BuildStoreResult(
-            g, meta[g.AppId],
+            g, MetadataFor(meta, g.AppId),
             friendsPlaying.TryGetValue(g.AppId, out var n) ? n : 0)).ToList();
     }
 
+    /// <summary>
+    /// Fetches metadata for the leading <see cref="MetadataEnrichmentCap"/> apps. Every app
+    /// costs two Steam storefront requests, and callers pass whole libraries, so enrichment
+    /// stops at the rows a user realistically scrolls to. Ids beyond the cap are absent from
+    /// the result and their rows fall back to <see cref="GameMetadata.Empty"/> — playtime,
+    /// last-played, and size come from the local manifest, so only the review summary and
+    /// release details are missing.
+    /// </summary>
     private async Task<Dictionary<uint, GameMetadata>> FetchMetadataAsync(
         IEnumerable<uint> appIds, CancellationToken ct)
     {
-        var ids = appIds.Distinct().ToList();
+        var ids = appIds.Distinct().Take(MetadataEnrichmentCap).ToList();
         var metas = await Task.WhenAll(ids.Select(id => _metadata.GetAsync(id, ct))).ConfigureAwait(false);
         return ids.Zip(metas).ToDictionary(pair => pair.First, pair => pair.Second);
     }
+
+    private static GameMetadata MetadataFor(IReadOnlyDictionary<uint, GameMetadata> meta, uint appId) =>
+        meta.TryGetValue(appId, out var m) ? m : GameMetadata.Empty;
 
     private async Task<List<Result>> BuildMeResultsAsync(CancellationToken ct)
     {

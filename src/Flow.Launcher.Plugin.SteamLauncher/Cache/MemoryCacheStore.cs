@@ -29,16 +29,48 @@ public sealed class MemoryCacheStore : ICacheStore, IDisposable
 
     public bool TryGet<T>(string domain, string key, [NotNullWhen(true)] out T? value) where T : class
     {
-        if (_entries.TryGetValue((domain, key), out var entry)
-            && !entry.IsFailure
-            && entry.ExpiresAt > _clock()
-            && entry.Value is T typed)
-        {
-            value = typed;
-            return true;
-        }
         value = null;
-        return false;
+
+        if (!_entries.TryGetValue((domain, key), out var entry)) return false;
+        if (entry.IsFailure || entry.ExpiresAt <= _clock()) return false;
+
+        switch (entry.Value)
+        {
+            case T typed:
+                value = typed;
+                return true;
+
+            // Rehydrated from disk but not yet materialized. Nothing on disk records the
+            // payload's type, so the caller's T is what names it — which also means a
+            // caller can never be handed a type it did not ask for.
+            case PendingPayload pending:
+                T? materialized;
+                try
+                {
+                    materialized = JsonSerializer.Deserialize<T>(pending.Json);
+                }
+                catch (JsonException)
+                {
+                    materialized = null;
+                }
+                catch (NotSupportedException)
+                {
+                    materialized = null;
+                }
+
+                if (materialized is null)
+                {
+                    _entries.TryRemove((domain, key), out _);
+                    return false;
+                }
+
+                _entries[(domain, key)] = entry with { Value = materialized };
+                value = materialized;
+                return true;
+
+            default:
+                return false;
+        }
     }
 
     public void Set<T>(string domain, string key, T value) where T : class
@@ -94,7 +126,18 @@ public sealed class MemoryCacheStore : ICacheStore, IDisposable
                 foreach (var (key, entry) in snapshot)
                 {
                     if (entry.ExpiresAt <= _clock()) continue;
-                    _entries[(domain, key)] = new Entry(entry.Value, entry.ExpiresAt, entry.IsFailure);
+
+                    // Failure markers carry no payload; a success entry without one is
+                    // unusable, so drop it rather than resurrect an empty hit.
+                    if (entry.IsFailure)
+                    {
+                        _entries[(domain, key)] = new Entry(null, entry.ExpiresAt, IsFailure: true);
+                        continue;
+                    }
+                    if (string.IsNullOrEmpty(entry.Value)) continue;
+
+                    _entries[(domain, key)] =
+                        new Entry(new PendingPayload(entry.Value), entry.ExpiresAt, IsFailure: false);
                 }
             }
             catch (IOException) { }
@@ -108,14 +151,20 @@ public sealed class MemoryCacheStore : ICacheStore, IDisposable
         Directory.CreateDirectory(_persistenceDir!);
         foreach (var domain in _policies.Keys)
         {
-            var snapshot = _entries
-                .Where(kv => kv.Key.Domain == domain && kv.Value.ExpiresAt > _clock())
-                .ToDictionary(
-                    kv => kv.Key.Key,
-                    kv => new PersistedEntry(
-                        kv.Value.Value as string,
-                        kv.Value.ExpiresAt,
-                        kv.Value.IsFailure));
+            var snapshot = new Dictionary<string, PersistedEntry>();
+            foreach (var kv in _entries.Where(kv => kv.Key.Domain == domain && kv.Value.ExpiresAt > _clock()))
+            {
+                if (kv.Value.IsFailure)
+                {
+                    snapshot[kv.Key.Key] = new PersistedEntry(null, kv.Value.ExpiresAt, IsFailure: true);
+                    continue;
+                }
+
+                var payload = Serialize(kv.Value.Value);
+                if (payload is null) continue;
+                snapshot[kv.Key.Key] = new PersistedEntry(payload, kv.Value.ExpiresAt, IsFailure: false);
+            }
+
             try
             {
                 var json = JsonSerializer.Serialize(snapshot);
@@ -126,8 +175,35 @@ public sealed class MemoryCacheStore : ICacheStore, IDisposable
         }
     }
 
+    /// <summary>
+    /// Serializes a live cache value for disk. Entries loaded but never read this session
+    /// are still holding their original JSON, so they pass straight through.
+    /// </summary>
+    private static string? Serialize(object? value)
+    {
+        switch (value)
+        {
+            case null:
+                return null;
+            case PendingPayload pending:
+                return pending.Json;
+            default:
+                try
+                {
+                    return JsonSerializer.Serialize(value, value.GetType());
+                }
+                catch (NotSupportedException)
+                {
+                    return null;
+                }
+        }
+    }
+
     private sealed record Entry(object? Value, DateTimeOffset ExpiresAt, bool IsFailure);
 
-    // String-only on disk; services serialize their own typed payloads via System.Text.Json.
+    /// <summary>A payload read from disk, still JSON because its type is not known until read.</summary>
+    private sealed record PendingPayload(string Json);
+
+    // Value holds the entry's payload as JSON. Failure markers persist with a null payload.
     private sealed record PersistedEntry(string? Value, DateTimeOffset ExpiresAt, bool IsFailure);
 }

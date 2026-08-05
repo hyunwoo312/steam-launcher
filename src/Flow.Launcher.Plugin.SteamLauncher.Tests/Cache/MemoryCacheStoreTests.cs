@@ -202,4 +202,111 @@ public sealed class MemoryCacheStoreTests
             if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
         }
     }
+
+    // Every production caller stores a typed payload, never a bare string, so this is the
+    // case that actually has to survive a restart.
+    [Fact]
+    public void Persistence_RoundTripsTypedPayload()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cache-persist-" + Guid.NewGuid());
+        try
+        {
+            var policy = new CachePolicy("d", TimeSpan.FromMinutes(60), TimeSpan.FromMinutes(60));
+
+            using (var first = new MemoryCacheStore([policy], dir))
+            {
+                first.Set("d", "730", new List<CachedItem>
+                {
+                    new(730, "Counter-Strike 2"),
+                    new(440, "Team Fortress 2")
+                });
+            }
+
+            using var second = new MemoryCacheStore([policy], dir);
+
+            second.TryGet<List<CachedItem>>("d", "730", out var items).Should().BeTrue();
+            items.Should().HaveCount(2);
+            items![0].Should().Be(new CachedItem(730, "Counter-Strike 2"));
+            items[1].Should().Be(new CachedItem(440, "Team Fortress 2"));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Persistence_RoundTripsFailureMarkers()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cache-persist-" + Guid.NewGuid());
+        try
+        {
+            var policy = new CachePolicy("d", TimeSpan.FromMinutes(60), TimeSpan.FromMinutes(60));
+
+            using (var first = new MemoryCacheStore([policy], dir))
+            {
+                first.SetFailure("d", "dead");
+            }
+
+            using var second = new MemoryCacheStore([policy], dir);
+
+            second.HasRecentFailure("d", "dead").Should().BeTrue();
+            second.TryGet<CachedItem>("d", "dead", out _).Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Persistence_ReadingAsWrongType_DoesNotThrowAndDropsEntry()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cache-persist-" + Guid.NewGuid());
+        try
+        {
+            var policy = new CachePolicy("d", TimeSpan.FromMinutes(60), TimeSpan.FromMinutes(60));
+
+            using (var first = new MemoryCacheStore([policy], dir))
+            {
+                first.Set("d", "k", new List<CachedItem> { new(1, "one") });
+            }
+
+            using var second = new MemoryCacheStore([policy], dir);
+
+            second.TryGet<CachedItem>("d", "k", out _).Should().BeFalse();
+            second.TryGet<List<CachedItem>>("d", "k", out _).Should().BeFalse();
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Persistence_UnreadEntriesSurviveASecondRestart()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "cache-persist-" + Guid.NewGuid());
+        try
+        {
+            var policy = new CachePolicy("d", TimeSpan.FromMinutes(60), TimeSpan.FromMinutes(60));
+
+            using (var first = new MemoryCacheStore([policy], dir))
+                first.Set("d", "k", new List<CachedItem> { new(7, "seven") });
+
+            // Loaded but never read, so it is still unmaterialized when saved again.
+            using (new MemoryCacheStore([policy], dir)) { }
+
+            using var third = new MemoryCacheStore([policy], dir);
+
+            third.TryGet<List<CachedItem>>("d", "k", out var items).Should().BeTrue();
+            items.Should().ContainSingle().Which.Should().Be(new CachedItem(7, "seven"));
+        }
+        finally
+        {
+            if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    public sealed record CachedItem(uint AppId, string Name);
 }

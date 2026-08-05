@@ -18,6 +18,7 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IResultUpdated, IDisposab
     private PluginInitContext? _context;
     private MemoryCacheStore? _cache;
     private LocalLibraryService? _localLibrary;
+    private GameMetadataService? _gameMetadata;
     private HttpClient? _httpClient;
     private string _defaultIconPath = string.Empty;
     private Action<string, string, Exception> _logException = (_, _, _) => { };
@@ -66,6 +67,7 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IResultUpdated, IDisposab
         var userProfile = new UserProfileService(webApiClient, ownedGames, settings);
         var storeSearch = new StoreSearchService(webApiClient, ownedGames, _cache, settings);
         var gameMetadata = new GameMetadataService(webApiClient, _cache);
+        _gameMetadata = gameMetadata;
 
         var avatarsDir = Path.Combine(settingsPath, "avatars");
         var avatarCache = new AvatarCache(avatarsDir, _httpClient);
@@ -263,6 +265,7 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IResultUpdated, IDisposab
         _httpClient?.Dispose();
         _cache?.Dispose();
         _localLibrary?.Dispose();
+        _gameMetadata?.Dispose();
     }
 
     private static HttpClient BuildHttpClient(string pluginVersion)

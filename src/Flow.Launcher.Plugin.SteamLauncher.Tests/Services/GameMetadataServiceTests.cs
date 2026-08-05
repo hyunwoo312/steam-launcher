@@ -113,4 +113,98 @@ public sealed class GameMetadataServiceTests
         meta.ReviewCount.Should().Be(105);
         meta.CategoryIds.Should().Equal(38);
     }
+
+    [Fact]
+    public async Task GetAsync_ConcurrentCallers_NeverExceedFetchLimit()
+    {
+        const int maxConcurrent = 4;
+        var client = new ConcurrencyTrackingClient();
+        var service = new GameMetadataService(
+            client,
+            new MemoryCacheStore(CachePolicies.Default, persistenceDir: null),
+            maxConcurrentFetches: maxConcurrent);
+
+        var appIds = Enumerable.Range(1, 20).Select(i => (uint)i);
+        var results = await Task.WhenAll(appIds.Select(id => service.GetAsync(id, CancellationToken.None)));
+
+        results.Should().HaveCount(20);
+        client.PeakConcurrency.Should().BeLessThanOrEqualTo(maxConcurrent);
+        client.PeakConcurrency.Should().BeGreaterThan(1, "the gate should throttle, not serialize");
+    }
+
+    [Fact]
+    public async Task GetAsync_SecondCallForSameApp_IsServedFromCache()
+    {
+        var client = new ConcurrencyTrackingClient();
+        var service = new GameMetadataService(
+            client,
+            new MemoryCacheStore(CachePolicies.Default, persistenceDir: null));
+
+        await service.GetAsync(730u, CancellationToken.None);
+        var callsAfterFirst = client.TotalCalls;
+        await service.GetAsync(730u, CancellationToken.None);
+
+        client.TotalCalls.Should().Be(callsAfterFirst);
+    }
+
+    [Fact]
+    public void Constructor_RejectsNonPositiveFetchLimit()
+    {
+        var act = () => new GameMetadataService(
+            Substitute.For<ISteamWebApiClient>(),
+            new MemoryCacheStore(CachePolicies.Default, persistenceDir: null),
+            maxConcurrentFetches: 0);
+
+        act.Should().Throw<ArgumentOutOfRangeException>();
+    }
+
+    /// <summary>
+    /// Records how many storefront calls overlap. Hand-rolled rather than mocked because the
+    /// assertion needs genuinely concurrent tasks, not synchronously-returned ones.
+    /// </summary>
+    private sealed class ConcurrencyTrackingClient : ISteamWebApiClient
+    {
+        private readonly object _lock = new();
+        private int _current;
+
+        public int PeakConcurrency { get; private set; }
+        public int TotalCalls { get; private set; }
+
+        public bool HasApiKey => true;
+
+        public Task<AppReviewsResponse?> GetAppReviewsAsync(uint appId, CancellationToken ct) =>
+            TrackAsync<AppReviewsResponse?>(
+                new AppReviewsResponse(1, new AppReviewsSummary("Positive", 10, 1, 11)));
+
+        public Task<AppDetailsEnvelope?> GetAppDetailsAsync(uint appId, CancellationToken ct) =>
+            TrackAsync<AppDetailsEnvelope?>(
+                new AppDetailsEnvelope(true, new AppDetailsData("Game", false, ["Dev"], null, null)));
+
+        private async Task<T> TrackAsync<T>(T result)
+        {
+            lock (_lock)
+            {
+                _current++;
+                TotalCalls++;
+                if (_current > PeakConcurrency) PeakConcurrency = _current;
+            }
+            try
+            {
+                await Task.Delay(20, CancellationToken.None).ConfigureAwait(false);
+                return result;
+            }
+            finally
+            {
+                lock (_lock) { _current--; }
+            }
+        }
+
+        public Task<bool> CheckHealthAsync(CancellationToken ct) => throw new NotSupportedException();
+        public Task<StoreSearchResponse?> SearchStoreAsync(string query, string countryCode, CancellationToken ct) => throw new NotSupportedException();
+        public Task<OwnedGamesResponse?> GetOwnedGamesAsync(ulong steamId64, CancellationToken ct) => throw new NotSupportedException();
+        public Task<PlayerSummariesResponse?> GetPlayerSummariesAsync(IEnumerable<ulong> steamIds, CancellationToken ct) => throw new NotSupportedException();
+        public Task<SteamLevelResponse?> GetSteamLevelAsync(ulong steamId64, CancellationToken ct) => throw new NotSupportedException();
+        public Task<RecentlyPlayedResponse?> GetRecentlyPlayedAsync(ulong steamId64, CancellationToken ct) => throw new NotSupportedException();
+        public Task<GetFriendListResponse?> GetFriendListAsync(ulong steamId64, CancellationToken ct) => throw new NotSupportedException();
+    }
 }
