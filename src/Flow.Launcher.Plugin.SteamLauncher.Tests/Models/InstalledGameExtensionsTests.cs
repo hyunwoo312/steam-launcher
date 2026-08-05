@@ -62,4 +62,45 @@ public sealed class InstalledGameExtensionsTests
     {
         Game(0).GetInstallState().Should().Be(InstallState.Installed);
     }
+
+    [Fact]
+    public void GetInstallState_Uninstalling_ReturnsUninstalling()
+    {
+        Game(4 | 2048).GetInstallState().Should().Be(InstallState.Uninstalling);
+    }
+
+    [Fact]
+    public void GetInstallState_FilesMissing_ReturnsFilesMissing()
+    {
+        Game(4 | 32).GetInstallState().Should().Be(InstallState.FilesMissing);
+    }
+
+    [Fact]
+    public void GetInstallState_UninstallingTrumpsUpdateRunning_ReturnsUninstalling()
+    {
+        Game(4 | 256 | 2048).GetInstallState().Should().Be(InstallState.Uninstalling);
+    }
+
+    [Fact]
+    public void GetInstallState_FilesMissingTrumpsUpdateRequired_ReturnsFilesMissing()
+    {
+        Game(4 | 2 | 32).GetInstallState().Should().Be(InstallState.FilesMissing);
+    }
+
+    [Fact]
+    public void IsAbsentFromDisk_UninstalledFlag_ReturnsTrue()
+    {
+        Game(1).IsAbsentFromDisk().Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(4u)]
+    [InlineData(4u | 2u)]
+    [InlineData(4u | 256u)]
+    [InlineData(4u | 2048u)]
+    [InlineData(0u)]
+    public void IsAbsentFromDisk_WithoutUninstalledFlag_ReturnsFalse(uint flags)
+    {
+        Game(flags).IsAbsentFromDisk().Should().BeFalse();
+    }
 }

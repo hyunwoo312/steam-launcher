@@ -12,16 +12,23 @@ public sealed class GameIconResolver : IGameIconResolver
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     private readonly ISteamPathResolver _pathResolver;
-    private readonly Lazy<Dictionary<uint, string>> _localIcons;
+    private volatile Lazy<Dictionary<uint, string>> _localIcons;
 
     public GameIconResolver(ISteamPathResolver pathResolver)
     {
         _pathResolver = pathResolver;
-        _localIcons = new Lazy<Dictionary<uint, string>>(LoadLocalIconCache, isThreadSafe: true);
+        _localIcons = NewCache();
     }
 
     public string Resolve(uint appId) =>
         _localIcons.Value.TryGetValue(appId, out var path) ? path : CdnCapsuleUrl(appId);
+
+    // Swapping the Lazy wholesale keeps Resolve lock-free: a caller mid-Resolve finishes
+    // against the old scan, and the next one builds the new one.
+    public void InvalidateCache() => _localIcons = NewCache();
+
+    private Lazy<Dictionary<uint, string>> NewCache() =>
+        new(LoadLocalIconCache, isThreadSafe: true);
 
     private static string CdnCapsuleUrl(uint appId) =>
         $"https://shared.akamai.steamstatic.com/store_item_assets/steam/apps/{appId}/capsule_231x87.jpg";

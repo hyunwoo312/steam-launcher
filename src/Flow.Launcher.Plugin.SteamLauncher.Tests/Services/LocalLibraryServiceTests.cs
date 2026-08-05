@@ -139,4 +139,59 @@ public sealed class LocalLibraryServiceTests : IDisposable
 
         pathResolverSpy.Received(2).GetLibraryPaths();
     }
+
+    [Fact]
+    public async Task InvalidateCache_AlsoInvalidatesIconCache()
+    {
+        using var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
+
+        await service.GetInstalledGamesAsync(CancellationToken.None);
+        service.InvalidateCache();
+
+        _iconResolver.Received(1).InvalidateCache();
+    }
+
+    [Fact]
+    public async Task GetInstalledGamesAsync_UninstalledManifest_IsFiltered()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(_tempLibrary, "steamapps", "appmanifest_440.acf"),
+            """
+            "AppState"
+            {
+                "appid"  "440"
+                "name"   "Team Fortress 2"
+                "installdir" "Team Fortress 2"
+                "StateFlags" "1"
+            }
+            """);
+        using var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
+
+        var games = await service.GetInstalledGamesAsync(CancellationToken.None);
+
+        games.Should().ContainSingle();
+        games[0].AppId.Should().Be(730u);
+    }
+
+    [Fact]
+    public async Task GetInstalledGamesAsync_UninstallingManifest_IsStillListed()
+    {
+        await File.WriteAllTextAsync(
+            Path.Combine(_tempLibrary, "steamapps", "appmanifest_440.acf"),
+            """
+            "AppState"
+            {
+                "appid"  "440"
+                "name"   "Team Fortress 2"
+                "installdir" "Team Fortress 2"
+                "StateFlags" "2052"
+            }
+            """);
+        using var service = new LocalLibraryService(_pathResolver, _parser, _iconResolver);
+
+        var games = await service.GetInstalledGamesAsync(CancellationToken.None);
+
+        games.Should().HaveCount(2);
+        games.Should().ContainSingle(g => g.AppId == 440u);
+    }
 }

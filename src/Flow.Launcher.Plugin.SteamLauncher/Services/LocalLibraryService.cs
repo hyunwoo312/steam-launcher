@@ -59,7 +59,10 @@ public sealed class LocalLibraryService(
                 ct.ThrowIfCancellationRequested();
 
                 var game = TryParseManifest(manifestPath, libraryPath, playtimes, recentPlaytimes);
-                if (game is not null)
+
+                // Manifests linger after an uninstall with the Uninstalled bit set; listing
+                // them would offer a launch for a game that is no longer on disk.
+                if (game is not null && !game.IsAbsentFromDisk())
                     games.Add(game);
             }
         }
@@ -198,6 +201,10 @@ public sealed class LocalLibraryService(
     {
         lock (_cacheLock)
             _cache = null;
+
+        // Steam writes a newly installed game's icon under appcache/librarycache, so the
+        // icon scan goes stale on the same events the library does.
+        iconResolver.InvalidateCache();
     }
 
     private void EnsureWatchers(IReadOnlyList<string> libraryPaths)

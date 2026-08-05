@@ -10,6 +10,8 @@ internal static class LibraryRowFormatter
 
         var badge = game.GetInstallState() switch
         {
+            InstallState.Uninstalling   => "🗑 Uninstalling",
+            InstallState.FilesMissing   => "⚠ Files missing — verify to repair",
             InstallState.UpdateRequired => "⚠ Update available",
             InstallState.Updating       => "⬇ Updating",
             InstallState.UpdatePaused   => "⏸ Update paused",
