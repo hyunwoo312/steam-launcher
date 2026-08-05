@@ -4,6 +4,17 @@ All notable changes to Steam Launcher are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Steam data cached on disk — store results, review scores, release details, your owned games and friends list — now survives a restart instead of being silently discarded and refetched.
+- Large libraries no longer fire hundreds of simultaneous Steam requests on a single query, which could trip Steam's rate limit and leave rows without review scores until it lapsed.
+- Games being uninstalled, or whose files Steam reports as missing, are now labelled as such instead of appearing as ordinary launchable games. Fully uninstalled games no longer appear at all.
+- A game installed while Flow is running now picks up its Steam icon, rather than falling back to a generic store image until Flow restarts.
+- Filtering the library shows a consistent number of results, instead of briefly showing ten and then expanding to every match.
+- Searching while offline says so, instead of returning nothing.
+
 ## [1.1.1] - 2026-06-19
 
 ### Added

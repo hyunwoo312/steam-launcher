@@ -4,7 +4,6 @@ public abstract record ParsedQuery
 {
     public sealed record Empty : ParsedQuery;
     public sealed record LibraryFilter(string Term) : ParsedQuery;
-    public sealed record StoreSearch(string Term) : ParsedQuery;
     public sealed record Me : ParsedQuery;
     public sealed record RecentlyAddedNeverPlayed : ParsedQuery;
 

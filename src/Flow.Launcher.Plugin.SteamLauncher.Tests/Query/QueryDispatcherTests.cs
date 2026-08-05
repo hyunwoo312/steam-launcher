@@ -949,4 +949,63 @@ public sealed class QueryDispatcherTests
         ctx.IsInGame.Should().BeTrue();
         ctx.CurrentGameAppId.Should().Be(730U);
     }
+
+    [Fact]
+    public async Task LibraryFilter_ManyMatches_CapsRowsLikeTheFastPass()
+    {
+        var games = Enumerable.Range(1, 25).Select(i => Game((uint)i, $"Game {i}")).ToList();
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>(games));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Hit(100));
+        var dispatcher = BuildDispatcher(library, matcher);
+
+        var enriched = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("game"), CancellationToken.None);
+        var fast = await dispatcher.BuildFastFilteredResultsAsync("game", CancellationToken.None);
+
+        enriched.Should().HaveCount(fast.Count);
+        enriched.Should().HaveCount(10);
+    }
+
+    [Fact]
+    public async Task LibraryFilter_WhenOfflineWithNoMatches_ShowsOfflineRow()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>([Game(1, "Alpha")]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Miss());
+        var storeSearch = Substitute.For<IStoreSearchService>();
+        storeSearch.SearchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<StoreGame>>([]));
+        var dispatcher = BuildDispatcher(
+            library, matcher, storeSearch: storeSearch, isNetworkAvailable: () => false);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("nothing"), CancellationToken.None);
+
+        results.Should().ContainSingle();
+        results[0].Title.Should().Be("You're offline");
+    }
+
+    [Fact]
+    public async Task LibraryFilter_WhenOnlineWithNoMatches_StaysEmpty()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>([Game(1, "Alpha")]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Miss());
+        var storeSearch = Substitute.For<IStoreSearchService>();
+        storeSearch.SearchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<StoreGame>>([]));
+        var dispatcher = BuildDispatcher(library, matcher, storeSearch: storeSearch);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("nothing"), CancellationToken.None);
+
+        results.Should().BeEmpty();
+    }
 }

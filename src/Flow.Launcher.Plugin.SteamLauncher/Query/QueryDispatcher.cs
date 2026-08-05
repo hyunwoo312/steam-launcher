@@ -93,7 +93,6 @@ public sealed class QueryDispatcher
     {
         ParsedQuery.Empty                    => await BuildEmptyResultsAsync(ct).ConfigureAwait(false),
         ParsedQuery.LibraryFilter f          => await BuildFilteredResultsAsync(f.Term, ct).ConfigureAwait(false),
-        ParsedQuery.StoreSearch s            => await BuildStoreSearchResultsAsync(s.Term, ct).ConfigureAwait(false),
         ParsedQuery.Me                       => await BuildMeResultsAsync(ct).ConfigureAwait(false),
         ParsedQuery.RecentlyAddedNeverPlayed => await BuildNewResultsAsync(ct).ConfigureAwait(false),
         ParsedQuery.ApiConfig api            => _apiConfigRows.Build(api),
@@ -154,8 +153,14 @@ public sealed class QueryDispatcher
     {
         var libraryGames = await ResolveLibraryGamesAsync(filter, ct).ConfigureAwait(false);
         var friendsPlaying = await FetchFriendsPlayingMapAsync(ct).ConfigureAwait(false);
+
+        // Same cap the fast pass applies, so the enriched results replace those rows
+        // instead of expanding a 10-row list into every fuzzy match.
         if (libraryGames.Count >= CombinedResultCap)
-            return await BuildLibraryRowsAsync(libraryGames, friendsPlaying, ct).ConfigureAwait(false);
+        {
+            return await BuildLibraryRowsAsync(
+                libraryGames.Take(CombinedResultCap).ToList(), friendsPlaying, ct).ConfigureAwait(false);
+        }
 
         var installedAppIds = (await _localLibrary.GetInstalledGamesAsync(ct).ConfigureAwait(false))
             .Select(g => g.AppId).ToHashSet();
@@ -166,6 +171,10 @@ public sealed class QueryDispatcher
 
         var rows = await BuildLibraryRowsAsync(libraryGames, friendsPlaying, ct).ConfigureAwait(false);
         rows.AddRange(await BuildStoreRowsAsync(storeGames, friendsPlaying, ct).ConfigureAwait(false));
+
+        // Offline the store leg returns nothing, so an unmatched filter would otherwise
+        // render as silence with no reason given.
+        if (rows.Count == 0 && IsOffline()) return [OfflineRow()];
         return rows;
     }
 
@@ -176,16 +185,6 @@ public sealed class QueryDispatcher
             .Take(CombinedResultCap)
             .Select(g => BuildLibraryResult(g.Game, g.Match, GameMetadata.Empty, friendsPlaying: 0))
             .ToList();
-    }
-
-    private async Task<List<Result>> BuildStoreSearchResultsAsync(string query, CancellationToken ct)
-    {
-        var results = await _storeSearch.SearchAsync(query, ct).ConfigureAwait(false);
-        if (results.Count == 0 && IsOffline())
-            return [OfflineRow()];
-
-        var friendsPlaying = await FetchFriendsPlayingMapAsync(ct).ConfigureAwait(false);
-        return await BuildStoreRowsAsync(results.ToList(), friendsPlaying, ct).ConfigureAwait(false);
     }
 
     private async Task<IReadOnlyDictionary<uint, int>> FetchFriendsPlayingMapAsync(CancellationToken ct)
