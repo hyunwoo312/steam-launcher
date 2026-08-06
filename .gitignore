@@ -8,6 +8,7 @@ obj/
 # Build output
 out/
 publish/
+artifacts/
 *.zip
 
 # Plugin local state (would otherwise pollute repo)

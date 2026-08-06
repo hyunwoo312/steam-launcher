@@ -31,6 +31,34 @@ With the binfmt handler present, `dotnet.exe build ...` works directly from bash
 `Directory.Build.props` sets `TreatWarningsAsErrors` with `AnalysisMode=All`, so analyzer
 warnings break the build. Check its `NoWarn` list before suppressing anything new.
 
+## Trying changes in Flow Launcher
+
+**After any user-visible change, deploy to the local dev install so it can actually be
+tried** — don't leave the plugin folder stale:
+
+```bash
+winps "cd 'C:\Users\Hyun\Documents\coding\steam-launcher'; ./scripts/deploy-local.ps1"
+```
+
+That publishes, stops Flow (it holds the assemblies open), copies, and restarts Flow.
+
+The dev install is a **second copy** of the plugin at
+`%APPDATA%\FlowLauncher\Plugins\Flow.Launcher.Plugin.SteamLauncher.Local`, with its own
+`plugin.json` — a different plugin ID and the **`stt`** action keyword — so it runs beside
+the released `st` plugin. The deploy script never overwrites that file; doing so would
+collapse the dev copy onto the released plugin's ID and keyword. Per-plugin settings
+(including the encrypted API key) are keyed by plugin ID under
+`%APPDATA%\FlowLauncher\Settings\Plugins\<id>`, so they live outside the plugin folder and
+survive deploys.
+
+## Writing PowerShell scripts
+
+Keep `.ps1` files **ASCII-only**. Windows PowerShell 5.1 reads BOM-less UTF-8 scripts as
+ANSI, so a UTF-8 em dash (`E2 80 94`) decodes to `â€”` — and `0x94` becomes a smart quote,
+which PowerShell treats as a string delimiter and the script fails to parse. For the same
+reason, always pass `-Encoding UTF8` to `Get-Content` when a script reads a UTF-8 file
+such as `CHANGELOG.md`, or non-ASCII characters are silently corrupted.
+
 ## Releasing
 
 `Version` in `src/Flow.Launcher.Plugin.SteamLauncher/plugin.json` is the single source of
