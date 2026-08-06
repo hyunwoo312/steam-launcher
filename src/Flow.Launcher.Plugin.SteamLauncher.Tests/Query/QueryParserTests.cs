@@ -248,35 +248,33 @@ public sealed class QueryParserTests
         u.Filter.Should().Be("half-life");
     }
 
-    [Fact]
-    public void Parse_settings_ReturnsOpenSteamSettings()
+    [Theory]
+    [InlineData("settings", SteamWindow.Settings)]
+    [InlineData("SETTINGS", SteamWindow.Settings)]
+    [InlineData("downloads", SteamWindow.Downloads)]
+    [InlineData("Downloads", SteamWindow.Downloads)]
+    [InlineData("bigpicture", SteamWindow.BigPicture)]
+    [InlineData("BigPicture", SteamWindow.BigPicture)]
+    [InlineData("screenshots", SteamWindow.Screenshots)]
+    [InlineData("Screenshots", SteamWindow.Screenshots)]
+    [InlineData("redeem", SteamWindow.Redeem)]
+    [InlineData("REDEEM", SteamWindow.Redeem)]
+    public void Parse_WindowKeyword_ReturnsOpenSteamWindow(string input, SteamWindow expected)
     {
-        var result = QueryParser.Parse("settings");
+        var result = QueryParser.Parse(input);
 
-        result.Should().BeOfType<ParsedQuery.OpenSteamSettings>();
+        result.Should().BeOfType<ParsedQuery.OpenSteamWindow>()
+            .Which.Window.Should().Be(expected);
     }
 
-    [Fact]
-    public void Parse_settings_MixedCase_ReturnsOpenSteamSettings()
+    [Theory]
+    [InlineData("settings tab")]
+    [InlineData("redeem key")]
+    [InlineData("screenshot")]
+    public void Parse_WindowKeywordWithExtraText_FallsThroughToLibraryFilter(string input)
     {
-        var result = QueryParser.Parse("SETTINGS");
+        var result = QueryParser.Parse(input);
 
-        result.Should().BeOfType<ParsedQuery.OpenSteamSettings>();
-    }
-
-    [Fact]
-    public void Parse_downloads_ReturnsOpenSteamDownloads()
-    {
-        var result = QueryParser.Parse("downloads");
-
-        result.Should().BeOfType<ParsedQuery.OpenSteamDownloads>();
-    }
-
-    [Fact]
-    public void Parse_downloads_MixedCase_ReturnsOpenSteamDownloads()
-    {
-        var result = QueryParser.Parse("Downloads");
-
-        result.Should().BeOfType<ParsedQuery.OpenSteamDownloads>();
+        result.Should().BeOfType<ParsedQuery.LibraryFilter>();
     }
 }

@@ -51,9 +51,15 @@ public static class QueryParser
             return new ParsedQuery.UninstallGame(search[10..].Trim());
 
         if (search.Equals("settings", StringComparison.OrdinalIgnoreCase))
-            return new ParsedQuery.OpenSteamSettings();
+            return new ParsedQuery.OpenSteamWindow(SteamWindow.Settings);
         if (search.Equals("downloads", StringComparison.OrdinalIgnoreCase))
-            return new ParsedQuery.OpenSteamDownloads();
+            return new ParsedQuery.OpenSteamWindow(SteamWindow.Downloads);
+        if (search.Equals("bigpicture", StringComparison.OrdinalIgnoreCase))
+            return new ParsedQuery.OpenSteamWindow(SteamWindow.BigPicture);
+        if (search.Equals("screenshots", StringComparison.OrdinalIgnoreCase))
+            return new ParsedQuery.OpenSteamWindow(SteamWindow.Screenshots);
+        if (search.Equals("redeem", StringComparison.OrdinalIgnoreCase))
+            return new ParsedQuery.OpenSteamWindow(SteamWindow.Redeem);
 
         return new ParsedQuery.LibraryFilter(search);
     }

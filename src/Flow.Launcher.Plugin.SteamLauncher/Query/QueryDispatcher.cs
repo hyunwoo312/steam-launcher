@@ -102,8 +102,7 @@ public sealed class QueryDispatcher
         ParsedQuery.MultiplayerWith mw       => await BuildMultiplayerResultsAsync(mw.FriendName, ct).ConfigureAwait(false),
         ParsedQuery.VerifyGame v             => await BuildVerifyResultsAsync(v.Filter, ct).ConfigureAwait(false),
         ParsedQuery.UninstallGame u          => await BuildUninstallResultsAsync(u.Filter, ct).ConfigureAwait(false),
-        ParsedQuery.OpenSteamSettings        => BuildOpenSettingsResults(),
-        ParsedQuery.OpenSteamDownloads       => BuildOpenDownloadsResults(),
+        ParsedQuery.OpenSteamWindow w        => BuildOpenSteamWindowResults(w.Window),
         _ => []
     };
 
@@ -274,29 +273,32 @@ public sealed class QueryDispatcher
         Action = _ => LaunchInBackground(SteamUriBuilder.Uninstall(game.AppId), $"Uninstall failed: {game.Name}")
     };
 
-    private List<Result> BuildOpenSettingsResults() =>
-    [
-        new()
-        {
-            Title = "Steam Settings",
-            SubTitle = "Open the Steam settings window",
-            IcoPath = _defaultIconPath,
-            Glyph = new GlyphInfo("Segoe Fluent Icons", ""),
-            Action = _ => LaunchInBackground(SteamUriBuilder.OpenSettings(), "Open Steam settings failed")
-        }
-    ];
+    private sealed record SteamWindowRow(string Title, string SubTitle, string Glyph, string Uri);
 
-    private List<Result> BuildOpenDownloadsResults() =>
-    [
-        new()
-        {
-            Title = "Steam Downloads",
-            SubTitle = "Open the Steam download manager",
-            IcoPath = _defaultIconPath,
-            Glyph = new GlyphInfo("Segoe Fluent Icons", ""),
-            Action = _ => LaunchInBackground(SteamUriBuilder.OpenDownloads(), "Open Steam downloads failed")
-        }
-    ];
+    private static readonly Dictionary<SteamWindow, SteamWindowRow> SteamWindowRows = new()
+    {
+        [SteamWindow.Settings]    = new("Steam Settings",    "Open the Steam settings window",          "", SteamUriBuilder.OpenSettings()),
+        [SteamWindow.Downloads]   = new("Steam Downloads",   "Open the Steam download manager",         "", SteamUriBuilder.OpenDownloads()),
+        [SteamWindow.BigPicture]  = new("Big Picture Mode",  "Open Steam's TV and controller UI",       "", SteamUriBuilder.OpenBigPicture()),
+        [SteamWindow.Screenshots] = new("Steam Screenshots", "Open the screenshot manager",             "", SteamUriBuilder.OpenScreenshots()),
+        [SteamWindow.Redeem]      = new("Redeem Steam Key",  "Activate a product code on your account", "", SteamUriBuilder.OpenRedeem())
+    };
+
+    private List<Result> BuildOpenSteamWindowResults(SteamWindow window)
+    {
+        if (!SteamWindowRows.TryGetValue(window, out var row)) return [];
+        return
+        [
+            new()
+            {
+                Title = row.Title,
+                SubTitle = row.SubTitle,
+                IcoPath = _defaultIconPath,
+                Glyph = new GlyphInfo("Segoe Fluent Icons", row.Glyph),
+                Action = _ => LaunchInBackground(row.Uri, $"Open {row.Title} failed")
+            }
+        ];
+    }
 
     private async Task<List<Result>> BuildStoreRowsAsync(
         IReadOnlyList<StoreGame> games,
@@ -418,7 +420,10 @@ public sealed class QueryDispatcher
 
             var rows = await Task.WhenAll(ordered.Select(f =>
                 BuildFriendResultAsync(f, favorites.Contains(f.SteamId64), match: null, ct))).ConfigureAwait(false);
-            return rows.ToList();
+
+            // Only on the unfiltered list: when a filter is present the user is after a
+            // specific person, not the window.
+            return [BuildOpenFriendsRow(friends), .. rows];
         }
 
         var matched = new List<(Friend Friend, MatchResult Match)>();
@@ -440,6 +445,25 @@ public sealed class QueryDispatcher
         var matchRows = await Task.WhenAll(top.Select(m =>
             BuildFriendResultAsync(m.Friend, favorites.Contains(m.Friend.SteamId64), m.Match, ct))).ConfigureAwait(false);
         return matchRows.ToList();
+    }
+
+    private Result BuildOpenFriendsRow(IReadOnlyList<Friend> friends)
+    {
+        var inGame = friends.Count(f => f.IsInGame);
+        var online = friends.Count(f => !f.IsInGame && f.PersonaState != PersonaState.Offline);
+
+        var parts = new List<string>(3) { "Open the Steam friends list" };
+        if (online > 0) parts.Add($"{online} online");
+        if (inGame > 0) parts.Add($"{inGame} in game");
+
+        return new Result
+        {
+            Title = "Steam Friends",
+            SubTitle = string.Join(" · ", parts),
+            IcoPath = _defaultIconPath,
+            Score = int.MaxValue,
+            Action = _ => LaunchInBackground(SteamUriBuilder.OpenFriends(), "Open Steam friends list failed")
+        };
     }
 
     private async Task<Result> BuildFriendResultAsync(

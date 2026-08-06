@@ -16,6 +16,10 @@ public static class SteamUriBuilder
 
     public static string OpenSettings() => "steam://open/settings";
     public static string OpenDownloads() => "steam://open/downloads";
+    public static string OpenFriends() => "steam://open/friends";
+    public static string OpenBigPicture() => "steam://open/bigpicture";
+    public static string OpenScreenshots() => "steam://open/screenshots";
+    public static string OpenRedeem() => "steam://open/activate";
 
     public static string FriendsMessage(ulong steamId64) => $"steam://friends/message/{steamId64}";
     public static string FriendsJoinGame(ulong steamId64) => $"steam://friends/joingame/{steamId64}";

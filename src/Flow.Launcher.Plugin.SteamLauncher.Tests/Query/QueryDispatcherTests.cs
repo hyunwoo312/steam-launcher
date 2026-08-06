@@ -381,7 +381,7 @@ public sealed class QueryDispatcherTests
 
         var results = await dispatcher.DispatchAsync(new ParsedQuery.FriendsList(null), CancellationToken.None);
 
-        results.Select(r => r.Title).Should().Equal("Alex", "Bo", "Sam", "Zeb");
+        results.Skip(1).Select(r => r.Title).Should().Equal("Alex", "Bo", "Sam", "Zeb");
     }
 
     [Fact]
@@ -406,7 +406,7 @@ public sealed class QueryDispatcherTests
 
         var results = await dispatcher.DispatchAsync(new ParsedQuery.FriendsList(null), CancellationToken.None);
 
-        results.Select(r => r.Title).Should().Equal("Zeb", "Alex");
+        results.Skip(1).Select(r => r.Title).Should().Equal("Zeb", "Alex");
     }
 
     [Fact]
@@ -891,33 +891,24 @@ public sealed class QueryDispatcherTests
         actionResult.Should().BeTrue();
     }
 
-    [Fact]
-    public async Task OpenSteamSettings_ReturnsSingleRowWithSettingsUri()
+    [Theory]
+    [InlineData(SteamWindow.Settings, "Steam Settings")]
+    [InlineData(SteamWindow.Downloads, "Steam Downloads")]
+    [InlineData(SteamWindow.BigPicture, "Big Picture Mode")]
+    [InlineData(SteamWindow.Screenshots, "Steam Screenshots")]
+    [InlineData(SteamWindow.Redeem, "Redeem Steam Key")]
+    public async Task OpenSteamWindow_ReturnsSingleActionableRow(SteamWindow window, string expectedTitle)
     {
         var dispatcher = BuildDispatcher(
             Substitute.For<ILocalLibraryService>(),
             Substitute.For<IFuzzyMatcher>());
 
-        var results = await dispatcher.DispatchAsync(new ParsedQuery.OpenSteamSettings(), CancellationToken.None);
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.OpenSteamWindow(window), CancellationToken.None);
 
         var row = results.Should().ContainSingle().Which;
-        row.Title.Should().Be("Steam Settings");
-        row.SubTitle.Should().Be("Open the Steam settings window");
-        row.Action.Should().NotBeNull();
-    }
-
-    [Fact]
-    public async Task OpenSteamDownloads_ReturnsSingleRowWithDownloadsUri()
-    {
-        var dispatcher = BuildDispatcher(
-            Substitute.For<ILocalLibraryService>(),
-            Substitute.For<IFuzzyMatcher>());
-
-        var results = await dispatcher.DispatchAsync(new ParsedQuery.OpenSteamDownloads(), CancellationToken.None);
-
-        var row = results.Should().ContainSingle().Which;
-        row.Title.Should().Be("Steam Downloads");
-        row.SubTitle.Should().Be("Open the Steam download manager");
+        row.Title.Should().Be(expectedTitle);
+        row.SubTitle.Should().NotBeNullOrWhiteSpace();
         row.Action.Should().NotBeNull();
     }
 
@@ -942,7 +933,7 @@ public sealed class QueryDispatcherTests
 
         var results = await dispatcher.DispatchAsync(new ParsedQuery.FriendsList(null), CancellationToken.None);
 
-        var ctx = results[0].ContextData.Should().BeOfType<ContextData.Friend>().Which;
+        var ctx = results[1].ContextData.Should().BeOfType<ContextData.Friend>().Which;
         ctx.SteamId64.Should().Be(42UL);
         ctx.PersonaName.Should().Be("Alex");
         ctx.IsFavorite.Should().BeTrue();
@@ -1007,5 +998,95 @@ public sealed class QueryDispatcherTests
             new ParsedQuery.LibraryFilter("nothing"), CancellationToken.None);
 
         results.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FriendsList_Unfiltered_PinsOpenFriendsRowFirstWithCounts()
+    {
+        var friends = Substitute.For<IFriendsService>();
+        friends.GetFriendsAsync(Arg.Any<CancellationToken>()).Returns(new List<Friend>
+        {
+            Friend(1, "Zeb", PersonaState.Offline),
+            Friend(2, "Alex", PersonaState.Online, gameId: 730, gameName: "CS2"),
+            Friend(3, "Sam", PersonaState.Online)
+        });
+        var keyStore = Substitute.For<IApiKeyStore>();
+        keyStore.IsConfigured.Returns(true);
+        var dispatcher = BuildDispatcher(
+            Substitute.For<ILocalLibraryService>(),
+            Substitute.For<IFuzzyMatcher>(),
+            keyStore: keyStore,
+            settings: new PluginSettings { SteamId64 = "76561198000000001" },
+            friends: friends);
+
+        var results = await dispatcher.DispatchAsync(new ParsedQuery.FriendsList(null), CancellationToken.None);
+
+        results[0].Title.Should().Be("Steam Friends");
+        results[0].Score.Should().Be(int.MaxValue);
+        results[0].SubTitle.Should().Be("Open the Steam friends list · 1 online · 1 in game");
+        results[0].ContextData.Should().BeNull();
+    }
+
+    [Fact]
+    public async Task FriendsList_Filtered_OmitsOpenFriendsRow()
+    {
+        var friends = Substitute.For<IFriendsService>();
+        friends.GetFriendsAsync(Arg.Any<CancellationToken>()).Returns(new List<Friend>
+        {
+            Friend(2, "Alex", PersonaState.Online)
+        });
+        var keyStore = Substitute.For<IApiKeyStore>();
+        keyStore.IsConfigured.Returns(true);
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Hit(100));
+        var dispatcher = BuildDispatcher(
+            Substitute.For<ILocalLibraryService>(),
+            matcher,
+            keyStore: keyStore,
+            settings: new PluginSettings { SteamId64 = "76561198000000001" },
+            friends: friends);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.FriendsList("alex"), CancellationToken.None);
+
+        results.Should().ContainSingle().Which.Title.Should().Be("Alex");
+    }
+
+    [Fact]
+    public async Task FriendsList_NotConfigured_ShowsOnlyConfigureHint()
+    {
+        var keyStore = Substitute.For<IApiKeyStore>();
+        keyStore.IsConfigured.Returns(false);
+        var dispatcher = BuildDispatcher(
+            Substitute.For<ILocalLibraryService>(),
+            Substitute.For<IFuzzyMatcher>(),
+            keyStore: keyStore);
+
+        var results = await dispatcher.DispatchAsync(new ParsedQuery.FriendsList(null), CancellationToken.None);
+
+        results.Should().ContainSingle();
+        results[0].Title.Should().NotBe("Steam Friends");
+    }
+
+    [Fact]
+    public async Task FriendsList_AllFriendsOffline_OmitsCountsFromOpenerSubtitle()
+    {
+        var friends = Substitute.For<IFriendsService>();
+        friends.GetFriendsAsync(Arg.Any<CancellationToken>()).Returns(new List<Friend>
+        {
+            Friend(1, "Zeb", PersonaState.Offline)
+        });
+        var keyStore = Substitute.For<IApiKeyStore>();
+        keyStore.IsConfigured.Returns(true);
+        var dispatcher = BuildDispatcher(
+            Substitute.For<ILocalLibraryService>(),
+            Substitute.For<IFuzzyMatcher>(),
+            keyStore: keyStore,
+            settings: new PluginSettings { SteamId64 = "76561198000000001" },
+            friends: friends);
+
+        var results = await dispatcher.DispatchAsync(new ParsedQuery.FriendsList(null), CancellationToken.None);
+
+        results[0].SubTitle.Should().Be("Open the Steam friends list");
     }
 }

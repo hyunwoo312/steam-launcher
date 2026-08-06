@@ -34,6 +34,9 @@ st verify [name]         Verify integrity of a game's files
 st uninstall [name]      Uninstall an installed game
 st settings              Open the Steam settings window
 st downloads             Open the Steam download manager
+st bigpicture            Open Big Picture mode
+st screenshots           Open the screenshot manager
+st redeem                Redeem a Steam product key
 ```
 
 ## Features
@@ -56,7 +59,7 @@ st downloads             Open the Steam download manager
 
 ### Friends
 
-- `st friends` lists online friends sorted in-game / online / offline, with status emoji + current game
+- `st friends` pins an "Open Steam friends list" row first, then lists friends sorted in-game / online / offline, with status emoji + current game
 - `st friends <name>` fuzzy-filters by persona name
 - Favorites are pinned to the top with a ⭐ marker
 - Enter on a friend opens DM (Steam comes to the foreground via the AttachThreadInput trick)

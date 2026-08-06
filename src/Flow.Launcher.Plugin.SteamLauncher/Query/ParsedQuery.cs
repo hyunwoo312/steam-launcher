@@ -17,8 +17,7 @@ public abstract record ParsedQuery
 
     public sealed record VerifyGame(string? Filter) : ParsedQuery;
     public sealed record UninstallGame(string? Filter) : ParsedQuery;
-    public sealed record OpenSteamSettings : ParsedQuery;
-    public sealed record OpenSteamDownloads : ParsedQuery;
+    public sealed record OpenSteamWindow(SteamWindow Window) : ParsedQuery;
 }
 
 public enum ApiConfigAction
@@ -26,4 +25,14 @@ public enum ApiConfigAction
     ShowStatus,
     SaveKey,
     SaveSteamId
+}
+
+/// <summary>A Steam client window reachable by a bare <c>steam://open/…</c> URI.</summary>
+public enum SteamWindow
+{
+    Settings,
+    Downloads,
+    BigPicture,
+    Screenshots,
+    Redeem
 }

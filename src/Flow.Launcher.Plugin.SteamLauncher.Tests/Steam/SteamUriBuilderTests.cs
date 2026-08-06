@@ -13,6 +13,30 @@ public sealed class SteamUriBuilderTests
     }
 
     [Fact]
+    public void OpenFriends_BuildsCorrectUri()
+    {
+        SteamUriBuilder.OpenFriends().Should().Be("steam://open/friends");
+    }
+
+    [Fact]
+    public void OpenBigPicture_BuildsCorrectUri()
+    {
+        SteamUriBuilder.OpenBigPicture().Should().Be("steam://open/bigpicture");
+    }
+
+    [Fact]
+    public void OpenScreenshots_BuildsCorrectUri()
+    {
+        SteamUriBuilder.OpenScreenshots().Should().Be("steam://open/screenshots");
+    }
+
+    [Fact]
+    public void OpenRedeem_UsesSteamsActivateEndpoint()
+    {
+        SteamUriBuilder.OpenRedeem().Should().Be("steam://open/activate");
+    }
+
+    [Fact]
     public void Install_BuildsCorrectUri()
     {
         SteamUriBuilder.Install(730).Should().Be("steam://install/730");

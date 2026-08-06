@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added
+
+- `st friends` now starts with an "Open Steam friends list" row, so the friends window is one keystroke away — and it tells you how many friends are online and in game.
+- `st bigpicture` opens Big Picture mode, `st screenshots` opens the screenshot manager, and `st redeem` opens the product-key dialog.
+
 ### Fixed
 
 - Steam data cached on disk — store results, review scores, release details, your owned games and friends list — now survives a restart instead of being silently discarded and refetched.
