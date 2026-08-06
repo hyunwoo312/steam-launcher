@@ -34,7 +34,7 @@ st verify [name]         Verify integrity of a game's files
 st uninstall [name]      Uninstall an installed game
 st settings              Open the Steam settings window
 st downloads             Open the Steam download manager
-st bigpicture            Open Big Picture mode
+st bigpicture            Toggle Big Picture mode (opens it, or exits when already open)
 st screenshots           Open the screenshot manager
 st redeem                Redeem a Steam product key
 ```

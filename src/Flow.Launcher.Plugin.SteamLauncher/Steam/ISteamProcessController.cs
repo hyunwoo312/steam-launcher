@@ -24,4 +24,14 @@ public interface ISteamProcessController
     /// Used as a guard before killing Steam mid-session.
     /// </summary>
     bool IsGameRunning();
+
+    /// <summary>
+    /// True if Steam's Big Picture window is currently open. Detected by looking for a
+    /// visible <c>SDL_app</c> window whose title contains "Big Picture": Steam sets no
+    /// registry marker for the mode, and its Big Picture and desktop UIs share both a
+    /// process and a window class, so the title is the only available discriminator.
+    /// Steam's other windows ("Steam Settings", "Friends List") share that class too,
+    /// which is why the title must be matched rather than the class alone.
+    /// </summary>
+    bool IsBigPictureRunning();
 }

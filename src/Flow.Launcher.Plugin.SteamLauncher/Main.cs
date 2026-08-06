@@ -104,7 +104,9 @@ public sealed class Main : IAsyncPlugin, IContextMenu, IResultUpdated, IDisposab
             showToast, changeQuery, actionKeyword,
             pathResolver.GetActiveSteamId64,
             invalidateUserCaches,
-            localPersonaName, _defaultIconPath, _logException);
+            localPersonaName, _defaultIconPath, _logException,
+            isNetworkAvailable: null,
+            isBigPictureRunning: processController.IsBigPictureRunning);
         _contextMenuBuilder = new ContextMenuBuilder(context.API, settings, saveSettings, _defaultIconPath, _logException);
 
         _ = Task.Run(async () =>

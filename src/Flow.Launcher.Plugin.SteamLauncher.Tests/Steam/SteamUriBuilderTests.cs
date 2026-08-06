@@ -25,6 +25,12 @@ public sealed class SteamUriBuilderTests
     }
 
     [Fact]
+    public void CloseBigPicture_BuildsCorrectUri()
+    {
+        SteamUriBuilder.CloseBigPicture().Should().Be("steam://close/bigpicture");
+    }
+
+    [Fact]
     public void OpenScreenshots_BuildsCorrectUri()
     {
         SteamUriBuilder.OpenScreenshots().Should().Be("steam://open/screenshots");

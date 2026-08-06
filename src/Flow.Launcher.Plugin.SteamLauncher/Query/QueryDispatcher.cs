@@ -36,6 +36,7 @@ public sealed class QueryDispatcher
     private readonly string _defaultIconPath;
     private readonly Action<string, string, Exception> _logException;
     private readonly Func<bool> _isNetworkAvailable;
+    private readonly Func<bool>? _isBigPictureRunning;
     private readonly ApiConfigRowBuilder _apiConfigRows;
 
     public QueryDispatcher(
@@ -62,7 +63,8 @@ public sealed class QueryDispatcher
         string? localPersonaName,
         string defaultIconPath,
         Action<string, string, Exception> logException,
-        Func<bool>? isNetworkAvailable = null)
+        Func<bool>? isNetworkAvailable = null,
+        Func<bool>? isBigPictureRunning = null)
     {
         _localLibrary = localLibrary;
         _fuzzyMatcher = fuzzyMatcher;
@@ -85,6 +87,7 @@ public sealed class QueryDispatcher
         _defaultIconPath = defaultIconPath;
         _logException = logException;
         _isNetworkAvailable = isNetworkAvailable ?? NetworkInterface.GetIsNetworkAvailable;
+        _isBigPictureRunning = isBigPictureRunning;
         _apiConfigRows = new ApiConfigRowBuilder(
             apiKeyStore, settings, saveSettings, invalidateUserCaches, getActiveSteamId, changeQuery, showToast, actionKeyword, defaultIconPath, logException);
     }
@@ -286,6 +289,23 @@ public sealed class QueryDispatcher
 
     private List<Result> BuildOpenSteamWindowResults(SteamWindow window)
     {
+        // Big Picture takes over the whole screen, so the useful action while it is open is
+        // to leave it. Detection failing just falls through to the open row.
+        if (window == SteamWindow.BigPicture && IsBigPictureRunning())
+        {
+            return
+            [
+                new()
+                {
+                    Title = "Exit Big Picture Mode",
+                    SubTitle = "Big Picture is open - return to the Steam desktop UI",
+                    IcoPath = _defaultIconPath,
+                    Glyph = new GlyphInfo("Segoe Fluent Icons", SteamWindowRows[SteamWindow.BigPicture].Glyph),
+                    Action = _ => LaunchInBackground(SteamUriBuilder.CloseBigPicture(), "Exit Big Picture Mode failed")
+                }
+            ];
+        }
+
         if (!SteamWindowRows.TryGetValue(window, out var row)) return [];
         return
         [
@@ -752,6 +772,19 @@ public sealed class QueryDispatcher
         "Run `st api <key>` and `st api id <steamid64>`");
 
     private bool IsOffline() => !_isNetworkAvailable();
+
+    // Window enumeration can fail for reasons outside our control; treating that as
+    // "not running" keeps the row at its old open-only behaviour rather than erroring.
+    private bool IsBigPictureRunning()
+    {
+        if (_isBigPictureRunning is null) return false;
+        try { return _isBigPictureRunning(); }
+        catch (Exception ex)
+        {
+            _logException(nameof(QueryDispatcher), "Big Picture detection failed; assuming it is closed", ex);
+            return false;
+        }
+    }
 
     private Result OfflineRow() => new()
     {

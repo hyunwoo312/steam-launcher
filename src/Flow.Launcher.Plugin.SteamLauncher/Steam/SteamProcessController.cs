@@ -129,6 +129,69 @@ public sealed class SteamProcessController(ISteamPathResolver pathResolver) : IS
         return false;
     }
 
+    // Steam's desktop UI, settings, friends list and Big Picture are all SDL_app windows in
+    // steamwebhelper, so only the title separates them. "Big Picture" is Valve's product
+    // name and is left untranslated in most locales; if a locale does translate it,
+    // detection simply fails and the caller falls back to opening rather than toggling.
+    private const string SteamWindowClass = "SDL_app";
+    private const string BigPictureTitleMarker = "Big Picture";
+
+    public bool IsBigPictureRunning()
+    {
+        var found = false;
+
+        // Held in a local so the delegate cannot be collected while EnumWindows runs.
+        EnumWindowsProc callback = (hWnd, _) =>
+        {
+            if (!IsWindowVisible(hWnd)) return true;
+            if (!string.Equals(GetWindowClass(hWnd), SteamWindowClass, StringComparison.Ordinal)) return true;
+            if (!GetWindowTitle(hWnd).Contains(BigPictureTitleMarker, StringComparison.OrdinalIgnoreCase)) return true;
+
+            found = true;
+            return false; // stop enumerating
+        };
+
+        try { EnumWindows(callback, IntPtr.Zero); }
+        catch (EntryPointNotFoundException) { return false; }
+        catch (DllNotFoundException) { return false; }
+
+        return found;
+    }
+
+    private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
+
+    [DllImport("user32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool IsWindowVisible(IntPtr hWnd);
+
+    [DllImport("user32.dll", EntryPoint = "GetWindowTextW", CharSet = CharSet.Unicode)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern int GetWindowText(IntPtr hWnd, ref char lpString, int nMaxCount);
+
+    [DllImport("user32.dll", EntryPoint = "GetClassNameW", CharSet = CharSet.Unicode)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern int GetClassName(IntPtr hWnd, ref char lpClassName, int nMaxCount);
+
+    private static string GetWindowTitle(IntPtr hWnd)
+    {
+        Span<char> buffer = stackalloc char[256];
+        var length = GetWindowText(hWnd, ref MemoryMarshal.GetReference(buffer), buffer.Length);
+        return length > 0 ? new string(buffer[..length]) : string.Empty;
+    }
+
+    private static string GetWindowClass(IntPtr hWnd)
+    {
+        Span<char> buffer = stackalloc char[256];
+        var length = GetClassName(hWnd, ref MemoryMarshal.GetReference(buffer), buffer.Length);
+        return length > 0 ? new string(buffer[..length]) : string.Empty;
+    }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct ProcessBasicInformation
     {

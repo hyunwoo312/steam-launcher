@@ -58,7 +58,8 @@ public sealed class QueryDispatcherTests
         string actionKeyword = "st",
         Func<ulong?>? getActiveSteamId = null,
         Action? invalidateUserCaches = null,
-        Func<bool>? isNetworkAvailable = null)
+        Func<bool>? isNetworkAvailable = null,
+        Func<bool>? isBigPictureRunning = null)
     {
         if (metadata is null)
         {
@@ -89,7 +90,8 @@ public sealed class QueryDispatcherTests
             localPersonaName: null,
             "icon.png",
             NoLog,
-            isNetworkAvailable ?? (() => true));
+            isNetworkAvailable ?? (() => true),
+            isBigPictureRunning);
     }
 
     [Fact]
@@ -998,6 +1000,64 @@ public sealed class QueryDispatcherTests
             new ParsedQuery.LibraryFilter("nothing"), CancellationToken.None);
 
         results.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task BigPicture_WhenRunning_OffersExitInstead()
+    {
+        var dispatcher = BuildDispatcher(
+            Substitute.For<ILocalLibraryService>(),
+            Substitute.For<IFuzzyMatcher>(),
+            isBigPictureRunning: () => true);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.OpenSteamWindow(SteamWindow.BigPicture), CancellationToken.None);
+
+        var row = results.Should().ContainSingle().Which;
+        row.Title.Should().Be("Exit Big Picture Mode");
+        row.Action.Should().NotBeNull();
+    }
+
+    [Fact]
+    public async Task BigPicture_WhenNotRunning_OffersOpen()
+    {
+        var dispatcher = BuildDispatcher(
+            Substitute.For<ILocalLibraryService>(),
+            Substitute.For<IFuzzyMatcher>(),
+            isBigPictureRunning: () => false);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.OpenSteamWindow(SteamWindow.BigPicture), CancellationToken.None);
+
+        results.Should().ContainSingle().Which.Title.Should().Be("Big Picture Mode");
+    }
+
+    [Fact]
+    public async Task BigPicture_WhenDetectionThrows_FallsBackToOpen()
+    {
+        var dispatcher = BuildDispatcher(
+            Substitute.For<ILocalLibraryService>(),
+            Substitute.For<IFuzzyMatcher>(),
+            isBigPictureRunning: () => throw new InvalidOperationException("enumeration blew up"));
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.OpenSteamWindow(SteamWindow.BigPicture), CancellationToken.None);
+
+        results.Should().ContainSingle().Which.Title.Should().Be("Big Picture Mode");
+    }
+
+    [Fact]
+    public async Task OtherSteamWindows_AreUnaffectedByBigPictureState()
+    {
+        var dispatcher = BuildDispatcher(
+            Substitute.For<ILocalLibraryService>(),
+            Substitute.For<IFuzzyMatcher>(),
+            isBigPictureRunning: () => true);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.OpenSteamWindow(SteamWindow.Settings), CancellationToken.None);
+
+        results.Should().ContainSingle().Which.Title.Should().Be("Steam Settings");
     }
 
     [Fact]

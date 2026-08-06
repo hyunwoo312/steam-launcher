@@ -18,6 +18,7 @@ public static class SteamUriBuilder
     public static string OpenDownloads() => "steam://open/downloads";
     public static string OpenFriends() => "steam://open/friends";
     public static string OpenBigPicture() => "steam://open/bigpicture";
+    public static string CloseBigPicture() => "steam://close/bigpicture";
     public static string OpenScreenshots() => "steam://open/screenshots";
     public static string OpenRedeem() => "steam://open/activate";
 

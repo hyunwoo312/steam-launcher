@@ -9,7 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 ### Added
 
 - `st friends` now starts with an "Open Steam friends list" row, so the friends window is one keystroke away — and it tells you how many friends are online and in game.
-- `st bigpicture` opens Big Picture mode, `st screenshots` opens the screenshot manager, and `st redeem` opens the product-key dialog.
+- `st bigpicture` opens Big Picture mode, and offers to exit it when it is already open. `st screenshots` opens the screenshot manager, and `st redeem` opens the product-key dialog.
 
 ### Fixed
 
