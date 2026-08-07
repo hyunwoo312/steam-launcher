@@ -34,6 +34,8 @@ internal static class PreviewBuilders
 
         if (game.DiscountPercent is > 0)
             lines.Add($"Discount: -{game.DiscountPercent}%");
+        if (game.PlaytimeMinutes is > 0)
+            lines.Add($"Playtime: {SubtitleFormatters.Playtime(game.PlaytimeMinutes, null)}");
         if (game.LastPlayed is not null)
             lines.Add($"Last played: {SubtitleFormatters.LastPlayedRelative(game.LastPlayed.Value)}");
         if (friendsPlaying > 0)

@@ -1002,6 +1002,168 @@ public sealed class QueryDispatcherTests
         results.Should().BeEmpty();
     }
 
+    private static IOwnedGamesService OwnedService(params OwnedGameSummary[] games)
+    {
+        var owned = Substitute.For<IOwnedGamesService>();
+        owned.GetOwnedGamesAsync(Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<OwnedGameSummary>>(games));
+        return owned;
+    }
+
+    private static IStoreSearchService EmptyStore()
+    {
+        var store = Substitute.For<IStoreSearchService>();
+        store.SearchAsync(Arg.Any<string>(), Arg.Any<CancellationToken>())
+            .Returns(Task.FromResult<IReadOnlyList<StoreGame>>([]));
+        return store;
+    }
+
+    [Fact]
+    public async Task LibraryFilter_SurfacesOwnedButNotInstalledGames()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>([]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Hit(90));
+        var owned = OwnedService(new OwnedGameSummary(570, "Dota 2", 6000, DateTimeOffset.UtcNow.AddDays(-3)));
+
+        var dispatcher = BuildDispatcher(
+            library, matcher, storeSearch: EmptyStore(), owned: owned);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("dota"), CancellationToken.None);
+
+        var row = results.Should().ContainSingle().Which;
+        row.Title.Should().Be("Dota 2");
+        row.SubTitle.Should().Contain("Owned").And.Contain("not installed");
+        row.Score.Should().Be(90);
+    }
+
+    [Fact]
+    public async Task LibraryFilter_InstalledGameIsNotRepeatedAsOwned()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>([Game(570, "Dota 2")]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Hit(90));
+        var owned = OwnedService(new OwnedGameSummary(570, "Dota 2", 6000, DateTimeOffset.UtcNow));
+
+        var dispatcher = BuildDispatcher(
+            library, matcher, storeSearch: EmptyStore(), owned: owned);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("dota"), CancellationToken.None);
+
+        results.Should().ContainSingle().Which.Title.Should().Be("Dota 2");
+    }
+
+    [Fact]
+    public async Task LibraryFilter_StrongOwnedMatchOutranksWeakInstalledMatch()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>([Game(1, "Witchfire")]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), "Witchfire").Returns(Hit(20));
+        matcher.Match(Arg.Any<string>(), "The Witcher 3").Returns(Hit(200));
+        var owned = OwnedService(new OwnedGameSummary(292030, "The Witcher 3", 12000, DateTimeOffset.UtcNow));
+
+        var dispatcher = BuildDispatcher(
+            library, matcher, storeSearch: EmptyStore(), owned: owned);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("witcher 3"), CancellationToken.None);
+
+        // Installed carries a +50 bonus: 20+50 = 70, still below the owned game's 200.
+        results[0].Title.Should().Be("The Witcher 3");
+    }
+
+    [Fact]
+    public async Task LibraryFilter_EqualMatch_PrefersInstalledOverOwned()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>([Game(1, "Portal")]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Hit(100));
+        var owned = OwnedService(new OwnedGameSummary(2, "Portal 2", 500, DateTimeOffset.UtcNow));
+
+        var dispatcher = BuildDispatcher(
+            library, matcher, storeSearch: EmptyStore(), owned: owned);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("portal"), CancellationToken.None);
+
+        results[0].Title.Should().Be("Portal");
+    }
+
+    [Fact]
+    public async Task LibraryFilter_OwnedTierFillingTheCap_SkipsTheStoreCall()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>([]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Hit(100));
+        var owned = OwnedService(Enumerable.Range(1, 12)
+            .Select(i => new OwnedGameSummary((uint)i, $"Game {i}", i * 100, DateTimeOffset.UtcNow.AddDays(-i)))
+            .ToArray());
+        var storeSearch = EmptyStore();
+
+        var dispatcher = BuildDispatcher(
+            library, matcher, storeSearch: storeSearch, owned: owned);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("game"), CancellationToken.None);
+
+        results.Should().HaveCount(10);
+        await storeSearch.DidNotReceiveWithAnyArgs().SearchAsync(default!, default);
+    }
+
+    [Fact]
+    public async Task LibraryFilter_OwnedLookupFails_StillReturnsInstalledMatches()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>([Game(1, "Portal")]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Hit(100));
+        var owned = Substitute.For<IOwnedGamesService>();
+        owned.GetOwnedGamesAsync(Arg.Any<CancellationToken>())
+            .Returns<Task<IReadOnlyList<OwnedGameSummary>>>(_ => throw new InvalidOperationException("api down"));
+
+        var dispatcher = BuildDispatcher(
+            library, matcher, storeSearch: EmptyStore(), owned: owned);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("portal"), CancellationToken.None);
+
+        results.Should().ContainSingle().Which.Title.Should().Be("Portal");
+    }
+
+    [Fact]
+    public async Task LibraryFilter_OwnedRowActionInstallsRatherThanOpeningStore()
+    {
+        var library = Substitute.For<ILocalLibraryService>();
+        library.GetInstalledGamesAsync(default).ReturnsForAnyArgs(
+            Task.FromResult<IReadOnlyList<InstalledGame>>([]));
+        var matcher = Substitute.For<IFuzzyMatcher>();
+        matcher.Match(Arg.Any<string>(), Arg.Any<string>()).Returns(Hit(90));
+        var owned = OwnedService(new OwnedGameSummary(570, "Dota 2", 6000, DateTimeOffset.UtcNow));
+
+        var dispatcher = BuildDispatcher(
+            library, matcher, storeSearch: EmptyStore(), owned: owned);
+
+        var results = await dispatcher.DispatchAsync(
+            new ParsedQuery.LibraryFilter("dota"), CancellationToken.None);
+
+        var ctx = results[0].ContextData.Should().BeOfType<ContextData.Game>().Which;
+        ctx.AppId.Should().Be(570u);
+        ctx.InstallPath.Should().BeNull();
+    }
+
     [Fact]
     public async Task BigPicture_WhenRunning_OffersExitInstead()
     {

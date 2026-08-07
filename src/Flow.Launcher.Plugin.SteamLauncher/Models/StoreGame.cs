@@ -16,4 +16,9 @@ public sealed record StoreGame
     /// or owned games the user has never launched.
     /// </summary>
     public DateTimeOffset? LastPlayed { get; init; }
+
+    /// <summary>
+    /// Lifetime playtime in minutes, for owned games. Null for unowned store listings.
+    /// </summary>
+    public long? PlaytimeMinutes { get; init; }
 }

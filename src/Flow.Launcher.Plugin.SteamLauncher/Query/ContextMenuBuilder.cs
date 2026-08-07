@@ -19,6 +19,7 @@ internal sealed class ContextMenuBuilder
     private const string IconFavoriteStar     = ""; // FavoriteStar
     private const string IconFavoriteStarFill = ""; // FavoriteStarFill
     private const string IconDelete           = ""; // Delete
+    private const string IconLibrary          = ""; // Library
 
     private readonly IPublicAPI _api;
     private readonly PluginSettings _settings;
@@ -53,6 +54,7 @@ internal sealed class ContextMenuBuilder
         {
             UriRow("Launch game",                IconPlay,     SteamUriBuilder.RunGame(g.AppId),                                        "Launch via Steam"),
             UriRow("Open store page",            IconShop,     $"steam://store/{g.AppId}",                                              null),
+            SteamUriRow("Open library page",     IconLibrary,  SteamUriBuilder.LibraryDetails(g.AppId),                                 "View this game in your Steam library"),
             UriRow("Open community guides",      IconReading,  SteamOverlay($"https://steamcommunity.com/app/{g.AppId}/guides/"),       null),
             UriRow("Open community discussions", IconComment,  SteamOverlay($"https://steamcommunity.com/app/{g.AppId}/discussions/"),  null),
             UriRow("Open game properties",       IconSettings, SteamUriBuilder.GameProperties(g.AppId),                                 null)

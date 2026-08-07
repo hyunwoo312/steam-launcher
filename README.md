@@ -21,7 +21,7 @@ Launch games, search the store, manage friends, switch accounts, set status, and
 
 ```
 st                       List installed games (sorted by recently played)
-st <name>                Filter library, falls through to store search
+st <name>                Search installed games, then owned games, then the store
 st api                   Configure Steam Web API key + Steam ID (guided wizard)
 st me                    Profile summary (level, owned, playtime)
 st new                   Owned games never played
@@ -51,9 +51,15 @@ st redeem                Redeem a Steam product key
 - Surfaces "(N friends playing)" when any of your friends are currently in that game
 - Game, friend, profile, multiplayer, and account rows include concise preview-panel details
 
+### Owned games
+
+- `st <name>` also matches games you own but haven't installed, straight from the cached owned-games list — instant, and works offline
+- Rows show playtime and when you last played; Enter installs the game
+- Installed games get a small ranking bonus, so an exact match on an owned game still outranks a weak match on an installed one
+
 ### Steam Store search
 
-- `st <name>` falls through to the Steam Store when the term doesn't match an installed game (up to 10 combined results)
+- `st <name>` falls through to the Steam Store when the term doesn't match an installed or owned game (up to 10 combined results)
 - Shows review summary · price · discount · release date · developer
 - Owned-but-not-installed rows route directly to your library page
 

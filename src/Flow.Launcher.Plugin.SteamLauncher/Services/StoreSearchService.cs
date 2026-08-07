@@ -47,7 +47,8 @@ public sealed class StoreSearchService(
                     Currency = item.Price?.Currency,
                     DiscountPercent = item.Price?.DiscountPercent is > 0 ? item.Price.DiscountPercent : null,
                     IsOwned = owned is not null,
-                    LastPlayed = owned?.LastPlayed
+                    LastPlayed = owned?.LastPlayed,
+                    PlaytimeMinutes = owned?.PlaytimeMinutes
                 };
             })
             .ToList();

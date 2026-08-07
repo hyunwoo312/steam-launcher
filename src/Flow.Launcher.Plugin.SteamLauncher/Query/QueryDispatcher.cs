@@ -15,6 +15,14 @@ public sealed class QueryDispatcher
     private const int NewResultCap = 20;
     private const int MetadataEnrichmentCap = 30;
 
+    /// <summary>
+    /// Added to an installed game's fuzzy score so that, all else equal, something playable
+    /// right now outranks something owned but not installed. Deliberately modest: a strong
+    /// owned match should still beat a weak installed one, which is what a user typing a
+    /// game's full name expects.
+    /// </summary>
+    private const int InstalledScoreBonus = 50;
+
     private readonly ILocalLibraryService _localLibrary;
     private readonly IFuzzyMatcher _fuzzyMatcher;
     private readonly IStoreSearchService _storeSearch;
@@ -166,18 +174,36 @@ public sealed class QueryDispatcher
 
         var installedAppIds = (await _localLibrary.GetInstalledGamesAsync(ct).ConfigureAwait(false))
             .Select(g => g.AppId).ToHashSet();
-        var storeGames = (await _storeSearch.SearchAsync(filter, ct).ConfigureAwait(false))
-            .Where(g => !installedAppIds.Contains(g.AppId))
+
+        // Owned-but-not-installed comes from the local owned-games cache, so it resolves
+        // instantly and works offline — unlike the store leg below.
+        var ownedGames = (await ResolveOwnedGamesAsync(filter, installedAppIds, ct).ConfigureAwait(false))
             .Take(CombinedResultCap - libraryGames.Count)
             .ToList();
 
+        var shownAppIds = new HashSet<uint>(installedAppIds);
+        foreach (var owned in ownedGames) shownAppIds.Add(owned.Game.AppId);
+
+        var storeSlots = CombinedResultCap - libraryGames.Count - ownedGames.Count;
+        var storeGames = storeSlots > 0
+            ? (await _storeSearch.SearchAsync(filter, ct).ConfigureAwait(false))
+                .Where(g => !shownAppIds.Contains(g.AppId))
+                .Take(storeSlots)
+                .ToList()
+            : [];
+
         var rows = await BuildLibraryRowsAsync(libraryGames, friendsPlaying, ct).ConfigureAwait(false);
+        rows.AddRange(await BuildOwnedRowsAsync(ownedGames, friendsPlaying, ct).ConfigureAwait(false));
         rows.AddRange(await BuildStoreRowsAsync(storeGames, friendsPlaying, ct).ConfigureAwait(false));
 
         // Offline the store leg returns nothing, so an unmatched filter would otherwise
         // render as silence with no reason given.
         if (rows.Count == 0 && IsOffline()) return [OfflineRow()];
-        return rows;
+
+        // Rank here rather than relying on the host to sort by Score, so the merged tiers
+        // land in a known order. OrderByDescending is stable, so equal scores keep the
+        // order the tiers were appended in: installed, then owned, then store.
+        return rows.OrderByDescending(r => r.Score).ToList();
     }
 
     public async Task<List<Result>> BuildFastFilteredResultsAsync(string filter, CancellationToken ct)
@@ -222,6 +248,65 @@ public sealed class QueryDispatcher
         }
         return matched.OrderByDescending(m => m.Match!.Score).ToList();
     }
+
+    /// <summary>
+    /// Fuzzy-matches the owned-games cache, excluding anything already installed. Ordered by
+    /// match strength, then by how recently it was played, then by total playtime — the owned
+    /// list arrives in Steam's order, so unlike the installed list it needs an explicit
+    /// recency tie-break.
+    /// </summary>
+    private async Task<List<(OwnedGameSummary Game, MatchResult Match)>> ResolveOwnedGamesAsync(
+        string filter, IReadOnlySet<uint> installedAppIds, CancellationToken ct)
+    {
+        IReadOnlyList<OwnedGameSummary> owned;
+        try
+        {
+            owned = await _ownedGames.GetOwnedGamesAsync(ct).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex)
+        {
+            _logException(nameof(QueryDispatcher), "Owned-games lookup failed; searching installed and store only", ex);
+            return [];
+        }
+
+        var matched = new List<(OwnedGameSummary Game, MatchResult Match)>();
+        foreach (var game in owned)
+        {
+            if (installedAppIds.Contains(game.AppId)) continue;
+            var match = _fuzzyMatcher.Match(filter, game.Name);
+            if (match.Score > 0) matched.Add((game, match));
+        }
+
+        return matched
+            .OrderByDescending(m => m.Match.Score)
+            .ThenByDescending(m => m.Game.LastPlayed ?? DateTimeOffset.MinValue)
+            .ThenByDescending(m => m.Game.PlaytimeMinutes)
+            .ToList();
+    }
+
+    private async Task<List<Result>> BuildOwnedRowsAsync(
+        IReadOnlyList<(OwnedGameSummary Game, MatchResult Match)> games,
+        IReadOnlyDictionary<uint, int> friendsPlaying,
+        CancellationToken ct)
+    {
+        var meta = await FetchMetadataAsync(games.Select(g => g.Game.AppId), ct).ConfigureAwait(false);
+        return games.Select(g => BuildStoreResult(
+            ToStoreGame(g.Game), MetadataFor(meta, g.Game.AppId),
+            friendsPlaying.TryGetValue(g.Game.AppId, out var n) ? n : 0,
+            g.Match)).ToList();
+    }
+
+    // Owned rows render through the same path as store rows, so an owned game looks the
+    // same whether it was found locally or came back from a store search.
+    private static StoreGame ToStoreGame(OwnedGameSummary game) => new()
+    {
+        AppId = game.AppId,
+        Name = game.Name,
+        IsOwned = true,
+        LastPlayed = game.LastPlayed,
+        PlaytimeMinutes = game.PlaytimeMinutes
+    };
 
     private async Task<List<Result>> BuildLibraryRowsAsync(
         IReadOnlyList<(InstalledGame Game, MatchResult? Match)> games,
@@ -730,26 +815,31 @@ public sealed class QueryDispatcher
         SubTitle = (subtitlePrefix ?? string.Empty) + LibraryRowFormatter.BuildSubtitle(game, meta, friendsPlaying),
         IcoPath = game.IconPath ?? _defaultIconPath,
         TitleHighlightData = match?.MatchData,
-        Score = match?.Score ?? 0,
+        Score = (match?.Score ?? 0) + InstalledScoreBonus,
         ContextData = new ContextData.Game(game.AppId, game.Name, game.FullInstallPath),
         Preview = PreviewBuilders.Game(game, meta, friendsPlaying, game.IconPath ?? _defaultIconPath),
         Action = _ => actionOverride?.Invoke() ?? LaunchInBackground(SteamUriBuilder.RunGame(game.AppId), $"Launch failed: {game.Name}")
     };
 
-    private Result BuildStoreResult(StoreGame game, GameMetadata meta, int friendsPlaying)
+    private Result BuildStoreResult(
+        StoreGame game, GameMetadata meta, int friendsPlaying, MatchResult? match = null)
     {
-        var ownedNotInstalled = game.IsOwned;
-        var uri = ownedNotInstalled
-            ? SteamUriBuilder.LibraryDetails(game.AppId)
+        // Owning it already means the useful action is to get it onto disk, not to read the
+        // store page. The library page stays available from the context menu.
+        var uri = game.IsOwned
+            ? SteamUriBuilder.Install(game.AppId)
             : SteamUriBuilder.Store(game.AppId);
+        var icon = game.IconUrl ?? _iconResolver.Resolve(game.AppId);
 
         return new Result
         {
             Title = game.Name,
             SubTitle = StoreRowFormatter.BuildSubtitle(game, meta, friendsPlaying),
-            IcoPath = game.IconUrl ?? _iconResolver.Resolve(game.AppId),
+            IcoPath = icon,
+            TitleHighlightData = match?.MatchData,
+            Score = match?.Score ?? 0,
             ContextData = new ContextData.Game(game.AppId, game.Name, InstallPath: null),
-            Preview = PreviewBuilders.StoreGame(game, meta, friendsPlaying, game.IconUrl ?? _iconResolver.Resolve(game.AppId)),
+            Preview = PreviewBuilders.StoreGame(game, meta, friendsPlaying, icon),
             Action = _ => LaunchInBackground(uri, $"Open failed: {game.Name}")
         };
     }

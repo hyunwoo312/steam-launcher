@@ -11,6 +11,8 @@ internal static class StoreRowFormatter
         if (game.IsOwned)
         {
             parts.Add("⚙ Owned · not installed");
+            if (game.PlaytimeMinutes is > 0)
+                parts.Add(SubtitleFormatters.Playtime(game.PlaytimeMinutes, null));
             parts.Add(SubtitleFormatters.LastPlayedForOwnedRow(game.LastPlayed));
         }
         else

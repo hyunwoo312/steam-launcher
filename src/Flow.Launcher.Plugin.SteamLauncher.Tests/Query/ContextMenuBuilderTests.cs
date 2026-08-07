@@ -68,6 +68,7 @@ public sealed class ContextMenuBuilderTests
         rows.Select(r => r.Title).Should().Equal(
             "Launch game",
             "Open store page",
+            "Open library page",
             "Open community guides",
             "Open community discussions",
             "Open game properties",
