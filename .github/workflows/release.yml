@@ -62,15 +62,24 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path "publish/*" -DestinationPath "Flow.Launcher.Plugin.SteamLauncher.zip" -Force
 
+      # Written through the .NET API rather than Out-File: -Encoding utf8 means "no BOM"
+      # on PowerShell 7 but "with BOM" on 5.1, and a BOM would surface as stray characters
+      # at the top of the published release notes.
       - name: Generate release notes
         shell: pwsh
-        run: ./scripts/changelog.ps1 -ReleaseBody $env:VERSION | Out-File release-notes.md -Encoding utf8
+        run: |
+          $notes = ./scripts/changelog.ps1 -ReleaseBody $env:VERSION
+          [IO.File]::WriteAllText(
+            (Join-Path $PWD 'release-notes.md'),
+            ($notes -join [Environment]::NewLine),
+            [Text.UTF8Encoding]::new($false))
 
       - name: Create GitHub release
-        shell: bash
+        shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "v$VERSION" "Flow.Launcher.Plugin.SteamLauncher.zip" \
-            --notes-file release-notes.md \
-            --target "$GITHUB_SHA"
+        run: >
+          gh release create "v$env:VERSION"
+          "Flow.Launcher.Plugin.SteamLauncher.zip"
+          --notes-file release-notes.md
+          --target "${{ github.sha }}"
